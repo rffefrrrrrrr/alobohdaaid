@@ -1,0 +1,115 @@
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+Traceback (most recent call last):
+  File "/home/ubuntu/bot/fixed_telegram_bot/main.py", line 5, in <module>
+    from bot import Bot
+  File "/home/ubuntu/bot/fixed_telegram_bot/bot.py", line 6, in <module>
+    from handlers.start_help_handlers import StartHelpHandlers
+  File "/home/ubuntu/bot/fixed_telegram_bot/handlers/start_help_handlers.py", line 4, in <module>
+    from services.auth_service import AuthService
+  File "/home/ubuntu/bot/fixed_telegram_bot/services/auth_service.py", line 7, in <module>
+    import socks
+ModuleNotFoundError: No module named 'socks'
+/home/ubuntu/bot/fixed_telegram_bot/handlers/auth_handlers.py:46: PTBUserWarning: If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message. Read this FAQ entry to learn more about the per_* settings: https://github.com/python-telegram-bot/python-telegram-bot/wiki/Frequently-Asked-Questions#what-do-the-per_-settings-in-conversationhandler-do.
+  login_conv_handler = ConversationHandler(
+/home/ubuntu/bot/fixed_telegram_bot/handlers/auth_handlers.py:68: PTBUserWarning: If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message. Read this FAQ entry to learn more about the per_* settings: https://github.com/python-telegram-bot/python-telegram-bot/wiki/Frequently-Asked-Questions#what-do-the-per_-settings-in-conversationhandler-do.
+  generate_session_conv_handler = ConversationHandler(
+/home/ubuntu/bot/fixed_telegram_bot/handlers/posting_handlers.py:27: PTBUserWarning: If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message. Read this FAQ entry to learn more about the per_* settings: https://github.com/python-telegram-bot/python-telegram-bot/wiki/Frequently-Asked-Questions#what-do-the-per_-settings-in-conversationhandler-do.
+  posting_conv_handler = ConversationHandler(
+/home/ubuntu/bot/fixed_telegram_bot/handlers/response_handlers.py:28: PTBUserWarning: If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message. Read this FAQ entry to learn more about the per_* settings: https://github.com/python-telegram-bot/python-telegram-bot/wiki/Frequently-Asked-Questions#what-do-the-per_-settings-in-conversationhandler-do.
+  customize_conv_handler = ConversationHandler(
+2025-04-16 02:12:06,437 - root - INFO - Bot initialized
+2025-04-16 02:12:06,721 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7792142434:AAFNKxYbJ4oEkgVYmfb5OVYRQHuRCekJiMY/getMe "HTTP/1.1 200 OK"
+2025-04-16 02:12:06,814 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7792142434:AAFNKxYbJ4oEkgVYmfb5OVYRQHuRCekJiMY/deleteWebhook "HTTP/1.1 200 OK"
+2025-04-16 02:12:06,816 - telegram.ext.Application - INFO - Application started
+2025-04-16 02:12:17,091 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7792142434:AAFNKxYbJ4oEkgVYmfb5OVYRQHuRCekJiMY/getUpdates "HTTP/1.1 200 OK"
+2025-04-16 02:12:27,187 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7792142434:AAFNKxYbJ4oEkgVYmfb5OVYRQHuRCekJiMY/getUpdates "HTTP/1.1 200 OK"
+2025-04-16 02:

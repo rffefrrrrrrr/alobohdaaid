@@ -1,0 +1,12 @@
+{
+  "name": "telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram Bot with Keepalive",
+  "main": "main.py",
+  "scripts": {
+    "start": "bash run_persistently.sh"
+  },
+  "dependencies": {
+    "requests": "latest" 
+  }yyhhhhh
+}

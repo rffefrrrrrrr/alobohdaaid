@@ -1,0 +1,16 @@
+{
+  "install": {
+    "include": [
+      "^package\\.json$",
+      "^\\.env$"
+    ]
+  },
+  "restart": {
+    "include": [
+      "^main\\.py$",
+      "^bot\\.py$",
+      "^glitch_keepalive\\.sh$"
+    ]
+  },
+  "throttle": 60000
+}
