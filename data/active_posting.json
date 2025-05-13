@@ -77,8 +77,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T18:13:33.243888",
-        "last_activity": "2025-05-13T18:50:18.454558",
-        "message_count": 12,
+        "last_activity": "2025-05-13T19:37:05.200266",
+        "message_count": 26,
         "message_id": null,
         "is_recurring": true
     },
@@ -94,8 +94,41 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T18:50:19.289413",
-        "last_activity": "2025-05-13T18:50:19.289413",
-        "message_count": 0,
+        "last_activity": "2025-05-13T19:35:39.334824",
+        "message_count": 20,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6459577996_1747164784.988357": {
+        "user_id": 6459577996,
+        "post_id": "1747164784.9883456",
+        "message": "مطلوب موردين ايتونز بكميات \nمطلوب موردين اكواد بوبجي بكميات\nتواصلو مع\n\n@ mohager40",
+        "group_ids": [
+            "-1001599134989",
+            "-1001894777304"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-13T19:33:04.988361",
+        "last_activity": "2025-05-13T19:38:09.888276",
+        "message_count": 4,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7453528169_1747165121.61511": {
+        "user_id": 7453528169,
+        "post_id": "1747165121.6151013",
+        "message": "متوفر نت لامحدود \n\nالمدة: 10 ايام\n\nأبراج زين\n\nيمديك تفتح نقطة اتصال\n\nالسعر: 6$",
+        "group_ids": [
+            "-1001951329925"
+        ],
+        "delay_seconds": 190,
+        "exact_time": null,
+        "status": "stopped",
+        "start_time": "2025-05-13T19:38:41.615113",
+        "last_activity": "2025-05-13T19:39:34.845690",
+        "message_count": 1,
         "message_id": null,
         "is_recurring": true
     }
