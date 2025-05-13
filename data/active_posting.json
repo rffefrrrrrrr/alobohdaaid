@@ -77,8 +77,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T18:13:33.243888",
-        "last_activity": "2025-05-13T19:37:05.200266",
-        "message_count": 26,
+        "last_activity": "2025-05-13T19:47:06.803425",
+        "message_count": 29,
         "message_id": null,
         "is_recurring": true
     },
@@ -94,8 +94,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T18:50:19.289413",
-        "last_activity": "2025-05-13T19:35:39.334824",
-        "message_count": 20,
+        "last_activity": "2025-05-13T19:45:43.095598",
+        "message_count": 24,
         "message_id": null,
         "is_recurring": true
     },
@@ -111,8 +111,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T19:33:04.988361",
-        "last_activity": "2025-05-13T19:38:09.888276",
-        "message_count": 4,
+        "last_activity": "2025-05-13T19:48:13.662427",
+        "message_count": 8,
         "message_id": null,
         "is_recurring": true
     },
@@ -129,6 +129,25 @@
         "start_time": "2025-05-13T19:38:41.615113",
         "last_activity": "2025-05-13T19:39:34.845690",
         "message_count": 1,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7453528169_1747165821.9898403": {
+        "user_id": 7453528169,
+        "post_id": "1747165821.9898293",
+        "message": "متوفر نت لامحدود \n\nالمدة: 10 ايام\n\nأبراج زين\n\nيمديك تفتح نقطة اتصال\n\nالسعر: 6$\nتواصل خاص",
+        "group_ids": [
+            "-1001951329925",
+            "-1001599134989",
+            "-1001894777304",
+            "-1002097308555"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-13T19:50:21.989844",
+        "last_activity": "2025-05-13T19:50:21.989844",
+        "message_count": 0,
         "message_id": null,
         "is_recurring": true
     }
