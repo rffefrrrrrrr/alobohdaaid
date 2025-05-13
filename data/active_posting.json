@@ -77,7 +77,24 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T18:13:33.243888",
-        "last_activity": "2025-05-13T18:13:33.243888",
+        "last_activity": "2025-05-13T18:50:18.454558",
+        "message_count": 12,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6744224791_1747162219.289409": {
+        "user_id": 6744224791,
+        "post_id": "1747162219.2893958",
+        "message": "https://t.me/uuu4v",
+        "group_ids": [
+            "-1001940135568",
+            "-1001775268093"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-13T18:50:19.289413",
+        "last_activity": "2025-05-13T18:50:19.289413",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
