@@ -32,5 +32,22 @@
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
+    },
+    "6744224791_1747114704.8534226": {
+        "user_id": 6744224791,
+        "post_id": "1747114704.8534071",
+        "message": "https://t.me/uuu4v",
+        "group_ids": [
+            "-1001940135568",
+            "-1001775268093"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-13T05:38:24.853425",
+        "last_activity": "2025-05-13T05:38:24.853425",
+        "message_count": 0,
+        "message_id": null,
+        "is_recurring": true
     }
 }
