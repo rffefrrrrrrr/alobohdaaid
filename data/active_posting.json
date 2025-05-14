@@ -9,32 +9,9 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-14T17:07:59.583117",
-        "last_activity": "2025-05-14T17:07:59.583119",
-        "message_count": 0,
-        "message_id": null,
-        "is_recurring": true
-    },
-    "7207131508_1747238993.4879973": {
-        "user_id": 7207131508,
-        "post_id": "1747238993.4879882",
-        "message": "متوفر بوت نشر تلقائي اشتراك شهري ✨\nب2$ \nتريد تجربه مجانيه؟ شوف بايو\n\nمتوفر نتفلكس / شاهد / سبوتيفاي  / حسابات ستيم  / osn \nتعال خاصي فقط\n\nمتوفر انشاءات انستا 2012\n\nمتوفر اعلان لك يوم كامل\n\nب50  سنت",
-        "group_ids": [
-            "-1001351166875",
-            "-1001699992849",
-            "-1002212734419",
-            "-1001663822591",
-            "-1001599134989",
-            "-1002504204299",
-            "-1002693876619",
-            "-1001894777304"
-        ],
-        "delay_seconds": 400,
-        "exact_time": null,
-        "status": "running",
-        "start_time": "2025-05-14T17:07:59.600292",
-        "last_activity": "2025-05-14T17:07:59.600294",
-        "message_count": 0,
+        "start_time": "2025-05-14T17:07:59.491462",
+        "last_activity": "2025-05-14T17:38:03.278323",
+        "message_count": 7,
         "message_id": null,
         "is_recurring": true
     },
@@ -49,9 +26,9 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-14T17:07:59.602250",
-        "last_activity": "2025-05-14T17:07:59.602251",
-        "message_count": 0,
+        "start_time": "2025-05-14T17:07:59.595678",
+        "last_activity": "2025-05-14T17:08:01.295146",
+        "message_count": 1,
         "message_id": null,
         "is_recurring": true
     }
