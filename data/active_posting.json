@@ -157,8 +157,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T23:30:05.241982",
-        "last_activity": "2025-05-14T02:11:29.019052",
-        "message_count": 66,
+        "last_activity": "2025-05-14T02:16:31.819770",
+        "message_count": 68,
         "message_id": null,
         "is_recurring": true
     },
@@ -195,7 +195,23 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T02:14:17.663658",
-        "last_activity": "2025-05-14T02:14:17.663658",
+        "last_activity": "2025-05-14T02:14:18.617722",
+        "message_count": 1,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6459577996_1747189012.544581": {
+        "user_id": 6459577996,
+        "post_id": "1747189012.544572",
+        "message": "مطلوب موردين ايتونز بكميات \nمطلوب موردين اكواد بوبجي بكميات\nتواصلو مع\n\n@ mohager40",
+        "group_ids": [
+            "-1001599134989"
+        ],
+        "delay_seconds": 400,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-14T02:16:52.544583",
+        "last_activity": "2025-05-14T02:16:52.544583",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
