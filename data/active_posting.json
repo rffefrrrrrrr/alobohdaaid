@@ -1,20 +1,4 @@
 {
-    "6459577996_1747238961.0534184": {
-        "user_id": 6459577996,
-        "post_id": "1747238961.0534065",
-        "message": "مطلوب موردين ايتونز بكميات \nمطلوب موردين اكواد بوبجي بكميات\nتواصلو مع\n\n@ mohager40",
-        "group_ids": [
-            "-1001599134989"
-        ],
-        "delay_seconds": 300,
-        "exact_time": null,
-        "status": "running",
-        "start_time": "2025-05-14T17:07:59.491462",
-        "last_activity": "2025-05-14T19:08:11.389609",
-        "message_count": 25,
-        "message_id": null,
-        "is_recurring": true
-    },
     "6744224791_1747240328.546919": {
         "user_id": 6744224791,
         "post_id": "1747240328.5469103",
@@ -44,8 +28,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T19:10:56.566307",
-        "last_activity": "2025-05-14T19:10:58.428959",
-        "message_count": 2,
+        "last_activity": "2025-05-14T19:44:29.432814",
+        "message_count": 12,
         "message_id": null,
         "is_recurring": true
     },
@@ -66,8 +50,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T19:11:07.080855",
-        "last_activity": "2025-05-14T19:11:07.080855",
-        "message_count": 0,
+        "last_activity": "2025-05-14T19:45:17.987172",
+        "message_count": 25,
         "message_id": null,
         "is_recurring": true
     }
