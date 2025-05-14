@@ -77,9 +77,9 @@
         ],
         "delay_seconds": 300,
         "exact_time": null,
-        "status": "running",
+        "status": "stopped",
         "start_time": "2025-05-13T19:33:04.988361",
-        "last_activity": "2025-05-13T19:48:13.662427",
+        "last_activity": "2025-05-14T11:46:41.389727",
         "message_count": 8,
         "message_id": null,
         "is_recurring": true
@@ -193,9 +193,9 @@
         ],
         "delay_seconds": 400,
         "exact_time": null,
-        "status": "running",
+        "status": "stopped",
         "start_time": "2025-05-14T02:16:52.544583",
-        "last_activity": "2025-05-14T02:30:14.253540",
+        "last_activity": "2025-05-14T11:46:41.389744",
         "message_count": 3,
         "message_id": null,
         "is_recurring": true
@@ -230,8 +230,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T07:42:38.175176",
-        "last_activity": "2025-05-14T09:46:14.801821",
-        "message_count": 38,
+        "last_activity": "2025-05-14T11:46:29.230910",
+        "message_count": 74,
         "message_id": null,
         "is_recurring": true
     },
@@ -247,7 +247,24 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T09:47:00.293165",
-        "last_activity": "2025-05-14T09:47:00.293165",
+        "last_activity": "2025-05-14T11:42:47.127290",
+        "message_count": 48,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6459577996_1747223220.754486": {
+        "user_id": 6459577996,
+        "post_id": "1747223220.7544744",
+        "message": "مطلوب موردين ايتونز بكميات \nمطلوب موردين اكواد بوبجي بكميات\nتواصلو مع\n\n@ mohager40",
+        "group_ids": [
+            "-1001599134989",
+            "-1001894777304"
+        ],
+        "delay_seconds": 400,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-14T11:47:00.754490",
+        "last_activity": "2025-05-14T11:47:00.754490",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
