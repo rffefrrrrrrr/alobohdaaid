@@ -91,6 +91,7 @@ class PostingService:
         # Register save_active_tasks to be called on exit
         atexit.register(self.save_active_tasks) # This will now use JSON
         self.logger.info("Registered save_active_tasks to run on exit.")
+        self.start_watchdog_timer() # Start the watchdog timer
 
     def check_database_schema(self):
         """Check and create database schema if needed (for non-posting tables)"""
@@ -157,7 +158,7 @@ class PostingService:
             for task_id, task_data in self.active_tasks.items():
                 # Save tasks that are running or stopped (to allow restart)
                 # Completed or failed tasks are typically not saved for re-execution unless specific logic requires it.
-                if task_data.get("status") in ["running", "stopped"]:
+                if task_data.get("status") in ["running", "stopped", "failed"]:
                     task_copy = task_data.copy()
                     # Ensure datetime objects are converted to ISO format strings for JSON serialization
                     if isinstance(task_copy.get("start_time"), datetime):
@@ -401,18 +402,28 @@ class PostingService:
         loop.run_until_complete(task_coroutine())
 
     def stop_posting_task(self, task_id):
-        """Stop a running posting task"""
+        """Stop and delete a running posting task"""
         with self.tasks_lock:
-            if task_id in self.active_tasks and self.active_tasks[task_id]["status"] == "running":
-                self.logger.info(f"Attempting to stop task {task_id}")
-                self.active_tasks[task_id]["status"] = "stopped"
-                self.active_tasks[task_id]["last_activity"] = datetime.now()
+            if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
+                self.logger.info(f"Attempting to stop and delete task {task_id}")
+                # Signal the thread to stop
                 if task_id in self.task_events:
-                    self.task_events[task_id].set() # Signal the thread to stop
-                self.save_active_tasks() # Save updated status
-                return True, "Task scheduled to stop."
+                    self.task_events[task_id].set()
+                
+                # Remove the task from active_tasks
+                del self.active_tasks[task_id]
+                
+                # Clean up associated event and thread objects
+                if task_id in self.task_events: # Check again as it might have been cleaned by the thread itself
+                    del self.task_events[task_id]
+                if task_id in self.task_threads: # Check again
+                    del self.task_threads[task_id]
+                
+                self.save_active_tasks() # Save state without the deleted task
+                self.logger.info(f"Task {task_id} stopped and deleted.")
+                return True, "Task stopped and deleted successfully."
             elif task_id in self.active_tasks:
-                return False, f"Task {task_id} is not currently running (status: {self.active_tasks[task_id]['status']})."
+                return False, f"Task {task_id} is not currently running (status: {self.active_tasks[task_id].get('status')}). Cannot stop and delete."
             else:
                 return False, f"Task {task_id} not found."
 
@@ -440,25 +451,37 @@ class PostingService:
         return tasks_status
 
     def stop_all_user_tasks(self, user_id):
-        """Stop all running tasks for a specific user"""
-        stopped_tasks_count = 0
+        """Stop and delete all running tasks for a specific user"""
+        deleted_tasks_count = 0
         with self.tasks_lock:
-            tasks_to_stop = []
-            for task_id, task_data in self.active_tasks.items():
+            tasks_to_delete_ids = []
+            # Collect task_ids to stop and delete
+            for task_id, task_data in list(self.active_tasks.items()): # Iterate over a copy for safe deletion
                 if task_data.get("user_id") == user_id and task_data.get("status") == "running":
-                    tasks_to_stop.append(task_id)
+                    tasks_to_delete_ids.append(task_id)
             
-            for task_id in tasks_to_stop:
-                self.active_tasks[task_id]["status"] = "stopped"
-                self.active_tasks[task_id]["last_activity"] = datetime.now()
+            for task_id in tasks_to_delete_ids:
+                self.logger.info(f"Stopping and deleting task {task_id} for user {user_id}")
+                # Signal the thread to stop
                 if task_id in self.task_events:
-                    self.task_events[task_id].set()
-                stopped_tasks_count += 1
+                    self.task_events[task_id].set() # Signal the thread to stop
+                
+                # Remove the task from active_tasks
+                if task_id in self.active_tasks: # Check if still exists
+                    del self.active_tasks[task_id]
+                
+                # Clean up associated event and thread objects
+                if task_id in self.task_events: # Check again as it might have been cleaned by the thread itself
+                    del self.task_events[task_id]
+                if task_id in self.task_threads: # Check again
+                    del self.task_threads[task_id]
+                
+                deleted_tasks_count += 1
         
-        if stopped_tasks_count > 0:
-            self.save_active_tasks()
-        self.logger.info(f"Stopped {stopped_tasks_count} tasks for user {user_id}")
-        return stopped_tasks_count
+        if deleted_tasks_count > 0:
+            self.save_active_tasks() # Save changes after deletions
+        self.logger.info(f"Stopped and deleted {deleted_tasks_count} tasks for user {user_id}")
+        return deleted_tasks_count
 
     def delete_task_history(self, user_id, task_id=None):
         """Delete task history for a user, or a specific task"""
@@ -495,21 +518,86 @@ class PostingService:
              return 0, "Task not deleted (it might be running or not found)."
         return 0, "No tasks found to delete or matching criteria."
 
-    def start_auto_save_timer(self, interval=300):
-        """Periodically save active tasks (optional)"""
-        # This might be redundant if saves happen on task changes and exit.
-        # Consider if this is necessary for your use case.
-        def auto_save():
-            if hasattr(self, 'auto_save_timer_thread') and self.auto_save_timer_thread.is_alive():
-                self.save_active_tasks()
-                self.auto_save_timer_thread = threading.Timer(interval, auto_save)
-                self.auto_save_timer_thread.daemon = True
-                self.auto_save_timer_thread.start()
-        
-        # self.auto_save_timer_thread = threading.Timer(interval, auto_save)
-        # self.auto_save_timer_thread.daemon = True
-        # self.auto_save_timer_thread.start()
-        self.logger.info("Auto-save timer is currently disabled.")
+    def check_and_restart_failed_tasks(self):
+        """Periodically checks for failed or stopped recurring tasks and attempts to restart them."""
+        self.logger.info("Watchdog: Checking for failed or stopped recurring tasks to restart...")
+        tasks_restarted_count = 0
+        with self.tasks_lock:
+            # Iterate over a copy of task_ids to allow modification of self.active_tasks
+            for task_id in list(self.active_tasks.keys()):
+                task_data = self.active_tasks.get(task_id)
+                if not task_data:
+                    continue
+
+                is_recurring = task_data.get("is_recurring", False)
+                current_status = task_data.get("status")
+                user_id = task_data.get("user_id")
+
+                # Check if the task is recurring and has failed, or if it was running but its thread is no longer alive
+                should_restart = False
+                if is_recurring:
+                    if current_status == "failed":
+                        self.logger.warning(f"Watchdog: Found failed recurring task {task_id} for user {user_id}. Attempting restart.")
+                        should_restart = True
+                    elif current_status == "running": # Check if a supposedly running task's thread is dead
+                        thread = self.task_threads.get(task_id)
+                        if not thread or not thread.is_alive():
+                            self.logger.warning(f"Watchdog: Found recurring task {task_id} (status: running) for user {user_id} with a dead or missing thread. Attempting restart.")
+                            # Mark as failed first to ensure it's handled correctly by restart logic
+                            task_data["status"] = "failed" 
+                            task_data["last_activity"] = datetime.now()
+                            should_restart = True
+                
+                if should_restart and user_id:
+                    try:
+                        # Reset task status and metadata for restart
+                        task_data["status"] = "running"
+                        task_data["start_time"] = datetime.now() # Reset start time for the new run
+                        task_data["last_activity"] = datetime.now()
+                        task_data["message_count"] = 0 # Reset message count
+                        
+                        # Ensure event object exists
+                        self.task_events[task_id] = threading.Event()
+                        
+                        # Start the task execution in a new thread
+                        new_thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
+                        self.task_threads[task_id] = new_thread
+                        new_thread.start()
+                        
+                        self.logger.info(f"Watchdog: Successfully restarted task {task_id} for user {user_id}.")
+                        tasks_restarted_count += 1
+                    except Exception as e_restart:
+                        self.logger.error(f"Watchdog: Error restarting task {task_id} for user {user_id}: {e_restart}", exc_info=True)
+                        # Keep status as failed if restart fails
+                        task_data["status"] = "failed"
+                        task_data["last_activity"] = datetime.now()
+
+        if tasks_restarted_count > 0:
+            self.save_active_tasks() # Save changes if any tasks were restarted
+        self.logger.info(f"Watchdog: Finished check. Restarted {tasks_restarted_count} tasks.")
+
+
+    def start_watchdog_timer(self, interval_seconds=300): # 300 seconds = 5 minutes
+        self.logger.info(f"Initializing watchdog timer to check tasks every {interval_seconds} seconds.")
+        def watchdog_loop():
+            try:
+                self.logger.debug("Watchdog timer triggered.")
+                self.check_and_restart_failed_tasks() 
+            except Exception as e:
+                self.logger.error(f"Error in watchdog_loop: {e}", exc_info=True)
+            finally:
+                if hasattr(self, 'watchdog_timer_thread_obj') and self.watchdog_timer_thread_obj: 
+                     self.watchdog_timer_thread_obj = threading.Timer(interval_seconds, watchdog_loop)
+                     self.watchdog_timer_thread_obj.daemon = True 
+                     self.watchdog_timer_thread_obj.start()
+                     self.logger.debug(f"Watchdog timer rescheduled for {interval_seconds} seconds.")
+                else:
+                    self.logger.info("Watchdog timer not rescheduled (possibly during shutdown or stopped).")
+
+        self.watchdog_timer_thread_obj = threading.Timer(interval_seconds, watchdog_loop)
+        self.watchdog_timer_thread_obj.daemon = True
+        self.watchdog_timer_thread_obj.start()
+        self.logger.info(f"Watchdog timer started.")
 
     def check_recurring_tasks(self):
         """Check and re-queue recurring tasks that have completed"""
