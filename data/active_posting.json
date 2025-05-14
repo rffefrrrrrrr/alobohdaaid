@@ -140,7 +140,7 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-13T22:42:25.937688",
-        "last_activity": "2025-05-14T02:13:52.281594",
+        "last_activity": "2025-05-14T02:31:22.921393",
         "message_count": 522,
         "message_id": null,
         "is_recurring": true
@@ -179,8 +179,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T02:13:06.296850",
-        "last_activity": "2025-05-14T02:13:15.352538",
-        "message_count": 5,
+        "last_activity": "2025-05-14T02:33:38.260184",
+        "message_count": 14,
         "message_id": null,
         "is_recurring": true
     },
@@ -195,8 +195,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T02:14:17.663658",
-        "last_activity": "2025-05-14T02:14:18.617722",
-        "message_count": 1,
+        "last_activity": "2025-05-14T02:34:20.306471",
+        "message_count": 5,
         "message_id": null,
         "is_recurring": true
     },
@@ -211,7 +211,26 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T02:16:52.544583",
-        "last_activity": "2025-05-14T02:16:52.544583",
+        "last_activity": "2025-05-14T02:30:14.253540",
+        "message_count": 3,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7453528169_1747190075.8363802": {
+        "user_id": 7453528169,
+        "post_id": "1747190075.8363683",
+        "message": "متوفر نت لامحدود \n\nالمدة: 10 ايام\n\nأبراج زين\n\nيمديك تفتح نقطة اتصال\n\nالسعر: 6$\nتواصل خاص",
+        "group_ids": [
+            "-1001951329925",
+            "-1001599134989",
+            "-1001894777304",
+            "-1002097308555"
+        ],
+        "delay_seconds": 318,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-14T02:34:35.836384",
+        "last_activity": "2025-05-14T02:34:35.836384",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
