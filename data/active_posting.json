@@ -230,8 +230,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T07:42:38.175176",
-        "last_activity": "2025-05-14T11:46:29.230910",
-        "message_count": 74,
+        "last_activity": "2025-05-14T13:06:38.408763",
+        "message_count": 98,
         "message_id": null,
         "is_recurring": true
     },
@@ -247,8 +247,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T09:47:00.293165",
-        "last_activity": "2025-05-14T11:42:47.127290",
-        "message_count": 48,
+        "last_activity": "2025-05-14T13:08:24.451164",
+        "message_count": 82,
         "message_id": null,
         "is_recurring": true
     },
@@ -264,7 +264,24 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T11:47:00.754490",
-        "last_activity": "2025-05-14T11:47:00.754490",
+        "last_activity": "2025-05-14T13:07:24.348232",
+        "message_count": 26,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7453528169_1747228196.0828593": {
+        "user_id": 7453528169,
+        "post_id": "1747228196.0828497",
+        "message": "متوفر نت لامحدود \n\nالمدة: 10 ايام\n\nأبراج زين\n\nيمديك تفتح نقطة اتصال\n\nالسعر: 6$\nتواصل خاص",
+        "group_ids": [
+            "-1001951329925",
+            "-1001599134989"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-14T13:09:56.082862",
+        "last_activity": "2025-05-14T13:09:56.082862",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
