@@ -10,8 +10,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-14T17:07:59.491462",
-        "last_activity": "2025-05-14T17:38:03.278323",
-        "message_count": 7,
+        "last_activity": "2025-05-14T19:08:11.389609",
+        "message_count": 25,
         "message_id": null,
         "is_recurring": true
     },
@@ -29,6 +29,45 @@
         "start_time": "2025-05-14T17:07:59.595678",
         "last_activity": "2025-05-14T17:08:01.295146",
         "message_count": 1,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6744224791_1747249856.5663033": {
+        "user_id": 6744224791,
+        "post_id": "1747249856.5662742",
+        "message": "https://t.me/vFvvwK \nقناة احتيالي للبيع",
+        "group_ids": [
+            "-1001940135568",
+            "-1001775268093"
+        ],
+        "delay_seconds": 400,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-14T19:10:56.566307",
+        "last_activity": "2025-05-14T19:10:58.428959",
+        "message_count": 2,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7207131508_1747249867.0808508": {
+        "user_id": 7207131508,
+        "post_id": "1747249867.0808353",
+        "message": "متوفر بوت نشر تلقائي اشتراك شهري ✨\nب2$ \nتريد تجربه مجانيه؟ شوف بايو\n\nمتوفر نتفلكس / شاهد / سبوتيفاي  / حسابات ستيم  / osn \nتعال خاصي فقط\n\nمتوفر انشاءات انستا 2012\n\nمتوفر اعلان لك يوم كامل\n\nب50  سنت",
+        "group_ids": [
+            "-1001351166875",
+            "-1001699992849",
+            "-1002212734419",
+            "-1001663822591",
+            "-1001599134989",
+            "-1002504204299",
+            "-1002693876619"
+        ],
+        "delay_seconds": 400,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-14T19:11:07.080855",
+        "last_activity": "2025-05-14T19:11:07.080855",
+        "message_count": 0,
         "message_id": null,
         "is_recurring": true
     }
