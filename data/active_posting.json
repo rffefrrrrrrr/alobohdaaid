@@ -10,9 +10,9 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-15T05:08:36.130523",
-        "last_activity": "2025-05-15T05:08:36.130524",
-        "message_count": 0,
+        "start_time": "2025-05-15T05:08:36.126374",
+        "last_activity": "2025-05-15T05:33:41.861118",
+        "message_count": 3,
         "message_id": null,
         "is_recurring": true
     },
@@ -27,9 +27,9 @@
         "delay_seconds": 400,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-15T05:08:36.132496",
-        "last_activity": "2025-05-15T05:08:36.132497",
-        "message_count": 0,
+        "start_time": "2025-05-15T05:08:36.130062",
+        "last_activity": "2025-05-15T05:35:23.423947",
+        "message_count": 4,
         "message_id": null,
         "is_recurring": true
     },
@@ -43,8 +43,25 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-15T05:08:36.135144",
-        "last_activity": "2025-05-15T05:08:36.135145",
+        "start_time": "2025-05-15T05:08:36.133857",
+        "last_activity": "2025-05-15T05:38:38.998316",
+        "message_count": 7,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6744224791_1747287603.1547554": {
+        "user_id": 6744224791,
+        "post_id": "1747287603.1540523",
+        "message": "https://t.me/uuu4v",
+        "group_ids": [
+            "-1001940135568",
+            "-1001775268093"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-15T05:40:03.154759",
+        "last_activity": "2025-05-15T05:40:03.154759",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
