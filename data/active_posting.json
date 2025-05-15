@@ -1,0 +1,19 @@
+{
+    "6744224791_1747348286.9188201": {
+        "user_id": 6744224791,
+        "post_id": "1747348286.9188085",
+        "message": "https://t.me/uuu4v",
+        "group_ids": [
+            "-1001940135568",
+            "-1001775268093"
+        ],
+        "delay_seconds": 500,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-15T22:31:26.918823",
+        "last_activity": "2025-05-15T22:31:26.918823",
+        "message_count": 0,
+        "message_id": null,
+        "is_recurring": true
+    }
+}
