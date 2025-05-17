@@ -10,9 +10,9 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T19:45:15.427899",
-        "last_activity": "2025-05-17T19:45:15.427901",
-        "message_count": 0,
+        "start_time": "2025-05-17T17:19:05.539945",
+        "last_activity": "2025-05-17T19:34:16.057069",
+        "message_count": 3,
         "message_id": null,
         "is_recurring": true
     },
@@ -27,9 +27,9 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T19:45:15.433495",
-        "last_activity": "2025-05-17T19:45:15.433496",
-        "message_count": 0,
+        "start_time": "2025-05-17T17:19:05.543622",
+        "last_activity": "2025-05-17T19:19:37.374444",
+        "message_count": 15,
         "message_id": null,
         "is_recurring": true
     },
@@ -44,9 +44,9 @@
         "delay_seconds": 400,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T19:45:15.445423",
-        "last_activity": "2025-05-17T19:45:15.445425",
-        "message_count": 0,
+        "start_time": "2025-05-17T17:19:05.644200",
+        "last_activity": "2025-05-17T19:34:06.442201",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     }
