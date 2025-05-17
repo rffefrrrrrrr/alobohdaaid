@@ -11,7 +11,7 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-17T05:16:06.741982",
-        "last_activity": "2025-05-17T14:28:19.846233",
+        "last_activity": "2025-05-17T16:16:52.868160",
         "message_count": 2,
         "message_id": null,
         "is_recurring": true
@@ -45,15 +45,15 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-17T12:09:49.106994",
-        "last_activity": "2025-05-17T14:30:45.042601",
+        "last_activity": "2025-05-17T16:17:41.078274",
         "message_count": 9,
         "message_id": null,
         "is_recurring": true
     },
-    "7207131508_1747491239.8966935": {
+    "7207131508_1747498735.3977542": {
         "user_id": 7207131508,
-        "post_id": "1747491239.89668",
-        "message": "متوفر نتفلكس شهر كامل ب2$\nملف يحتاج في بي ان\n\nابيع لك حساب كامل ب6$ اعلي باقه\nس",
+        "post_id": "1747498735.3977442",
+        "message": "متوفر بوت نشر تلقائي اشتراك شهري ✨\nب2$ \nتريد تجربه مجانيه؟ شوف بايو\n\nمتوفر نتفلكس / شاهد / سبوتيفاي  / حسابات ستيم  / osn \nتعال خاصي فقط\n\nمتوفر انشاءات انستا 2012\n\nمتوفر اعلان لك يوم كامل\n\nب50  سنت",
         "group_ids": [
             "-1001351166875",
             "-1001699992849",
@@ -64,12 +64,12 @@
             "-1002693876619",
             "-1001894777304"
         ],
-        "delay_seconds": 400,
+        "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T14:13:59.896698",
-        "last_activity": "2025-05-17T14:27:49.783054",
-        "message_count": 16,
+        "start_time": "2025-05-17T16:18:55.397757",
+        "last_activity": "2025-05-17T16:18:55.397757",
+        "message_count": 0,
         "message_id": null,
         "is_recurring": true
     }
