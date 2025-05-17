@@ -11,8 +11,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-17T17:19:05.539945",
-        "last_activity": "2025-05-17T17:19:05.539949",
-        "message_count": 0,
+        "last_activity": "2025-05-17T19:24:56.146287",
+        "message_count": 3,
         "message_id": null,
         "is_recurring": true
     },
@@ -28,8 +28,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-17T17:19:05.543622",
-        "last_activity": "2025-05-17T17:19:05.543625",
-        "message_count": 0,
+        "last_activity": "2025-05-17T19:19:37.374444",
+        "message_count": 15,
         "message_id": null,
         "is_recurring": true
     },
@@ -45,31 +45,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-17T17:19:05.644200",
-        "last_activity": "2025-05-17T17:19:05.644201",
-        "message_count": 0,
-        "message_id": null,
-        "is_recurring": true
-    },
-    "7207131508_1747498735.3977542": {
-        "user_id": 7207131508,
-        "post_id": "1747498735.3977442",
-        "message": "متوفر بوت نشر تلقائي اشتراك شهري ✨\nب2$ \nتريد تجربه مجانيه؟ شوف بايو\n\nمتوفر نتفلكس / شاهد / سبوتيفاي  / حسابات ستيم  / osn \nتعال خاصي فقط\n\nمتوفر انشاءات انستا 2012\n\nمتوفر اعلان لك يوم كامل\n\nب50  سنت",
-        "group_ids": [
-            "-1001351166875",
-            "-1001699992849",
-            "-1002212734419",
-            "-1001663822591",
-            "-1001599134989",
-            "-1002504204299",
-            "-1002693876619",
-            "-1001894777304"
-        ],
-        "delay_seconds": 500,
-        "exact_time": null,
-        "status": "running",
-        "start_time": "2025-05-17T17:19:05.652436",
-        "last_activity": "2025-05-17T17:19:05.652437",
-        "message_count": 0,
+        "last_activity": "2025-05-17T19:20:44.432801",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     }
