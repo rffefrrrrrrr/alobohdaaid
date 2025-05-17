@@ -10,9 +10,9 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-16T17:12:50.677768",
-        "last_activity": "2025-05-16T18:28:27.987799",
-        "message_count": 1,
+        "start_time": "2025-05-17T05:16:06.745100",
+        "last_activity": "2025-05-17T05:16:06.745102",
+        "message_count": 0,
         "message_id": null,
         "is_recurring": true
     },
@@ -27,8 +27,8 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-16T19:23:22.840457",
-        "last_activity": "2025-05-16T19:23:22.840457",
+        "start_time": "2025-05-17T05:16:06.838254",
+        "last_activity": "2025-05-17T05:16:06.838255",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
