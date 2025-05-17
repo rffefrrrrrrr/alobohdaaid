@@ -10,8 +10,8 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T20:17:35.646711",
-        "last_activity": "2025-05-17T20:17:35.646713",
+        "start_time": "2025-05-17T20:17:35.546075",
+        "last_activity": "2025-05-17T20:26:23.846123",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -27,9 +27,9 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T20:17:35.655181",
-        "last_activity": "2025-05-17T20:17:35.655182",
-        "message_count": 0,
+        "start_time": "2025-05-17T20:17:35.549565",
+        "last_activity": "2025-05-17T20:28:11.056168",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     },
@@ -44,8 +44,24 @@
         "delay_seconds": 400,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T20:17:35.680344",
-        "last_activity": "2025-05-17T20:17:35.680346",
+        "start_time": "2025-05-17T20:17:35.646534",
+        "last_activity": "2025-05-17T20:24:46.865693",
+        "message_count": 0,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7207131508_1747520449.6504705": {
+        "user_id": 7207131508,
+        "post_id": "1747520449.650448",
+        "message": "Tear",
+        "group_ids": [
+            "-1001599134989"
+        ],
+        "delay_seconds": 200,
+        "exact_time": null,
+        "status": "failed",
+        "start_time": "2025-05-17T22:22:35.830477",
+        "last_activity": "2025-05-17T22:22:38.206143",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
