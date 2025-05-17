@@ -36,6 +36,9 @@ start_main_bot() {
     fi
     # Clean up stale PID file if process died without removing it
     rm -f "$PID_BOT_FILE"
+    # Delete log file before starting the bot
+    rm -rf bot_main_output.log
+    log "Deleted bot_main_output.log before starting the bot"
     # Start the bot in the background, log its output, and save its PID
     nohup python3 "$MAIN_BOT_SCRIPT" >> bot_main_output.log 2>&1 &
     echo $! > "$PID_BOT_FILE"
