@@ -10,9 +10,9 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T05:16:06.745100",
-        "last_activity": "2025-05-17T05:16:06.745102",
-        "message_count": 0,
+        "start_time": "2025-05-17T05:16:06.741982",
+        "last_activity": "2025-05-17T12:06:22.727569",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     },
@@ -27,8 +27,25 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-17T05:16:06.838254",
-        "last_activity": "2025-05-17T05:16:06.838255",
+        "start_time": "2025-05-17T05:16:06.745350",
+        "last_activity": "2025-05-17T08:37:00.696963",
+        "message_count": 24,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6744224791_1747483789.1069903": {
+        "user_id": 6744224791,
+        "post_id": "1747483789.1069667",
+        "message": "https://t.me/uuu4v",
+        "group_ids": [
+            "-1001940135568",
+            "-1001775268093"
+        ],
+        "delay_seconds": 400,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-17T12:09:49.106994",
+        "last_activity": "2025-05-17T12:09:49.106994",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
