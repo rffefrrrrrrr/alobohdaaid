@@ -45,7 +45,7 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-17T12:09:49.106994",
-        "last_activity": "2025-05-17T14:10:42.036637",
+        "last_activity": "2025-05-17T14:17:23.038664",
         "message_count": 9,
         "message_id": null,
         "is_recurring": true
@@ -68,7 +68,29 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-17T14:13:59.896698",
-        "last_activity": "2025-05-17T14:13:59.896698",
+        "last_activity": "2025-05-17T14:14:10.832501",
+        "message_count": 6,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7321925984_1747491521.750528": {
+        "user_id": 7321925984,
+        "post_id": "1747491521.7505198",
+        "message": "متوفر شاهد 3 شهور vip = ب50 ريال 🫡 .\n\nمتوفر شاهد 6 شهور vip = ب87 ريال 😎 .\n\nمتوفر شاهد سنه vip = ب144 ريال 😎 .",
+        "group_ids": [
+            "-1001945829755",
+            "-1001599134989",
+            "-1001930356393",
+            "-1001591937860",
+            "-1002113389840",
+            "-1002445179570",
+            "-1002164148042"
+        ],
+        "delay_seconds": 95,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-17T14:18:41.750531",
+        "last_activity": "2025-05-17T14:18:41.750531",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
