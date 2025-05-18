@@ -109,41 +109,36 @@ class PostingService:
                 restored_count = 0
                 if loaded_tasks_from_json and isinstance(loaded_tasks_from_json, dict):
                     for task_id, task_doc in loaded_tasks_from_json.items():
-                        # Always restore tasks regardless of status to ensure persistence after restart
-                        # This ensures tasks continue even after restart
-                        try:
-                            # Convert timestamps from string if necessary
-                            start_time_str = task_doc.get("start_time")
-                            last_activity_str = task_doc.get("last_activity")
-                            
-                            task_doc["start_time"] = datetime.fromisoformat(start_time_str) if isinstance(start_time_str, str) else start_time_str
-                            task_doc["last_activity"] = datetime.fromisoformat(last_activity_str) if isinstance(last_activity_str, str) else last_activity_str
-                            
-                            # Ensure group_ids is a list (it's stored as JSON string in old DB, ensure consistency)
-                            # The new save_active_tasks will store it as a list directly in JSON.
-                            # If loading from an old format where group_ids was a string, deserialize it.
-                            if isinstance(task_doc.get("group_ids"), str):
-                                try:
-                                    task_doc["group_ids"] = json.loads(task_doc["group_ids"])
-                                except json.JSONDecodeError:
-                                    self.logger.error(f"Error decoding group_ids JSON for task {task_id} during restore: {task_doc.get('group_ids')}. Using empty list.")
+                        # Only restore tasks that were running or explicitly marked for restore
+                        if task_doc.get("status") == "running": 
+                            try:
+                                # Convert timestamps from string if necessary
+                                start_time_str = task_doc.get("start_time")
+                                last_activity_str = task_doc.get("last_activity")
+                                
+                                task_doc["start_time"] = datetime.fromisoformat(start_time_str) if isinstance(start_time_str, str) else start_time_str
+                                task_doc["last_activity"] = datetime.fromisoformat(last_activity_str) if isinstance(last_activity_str, str) else last_activity_str
+                                
+                                # Ensure group_ids is a list (it's stored as JSON string in old DB, ensure consistency)
+                                # The new save_active_tasks will store it as a list directly in JSON.
+                                # If loading from an old format where group_ids was a string, deserialize it.
+                                if isinstance(task_doc.get("group_ids"), str):
+                                    try:
+                                        task_doc["group_ids"] = json.loads(task_doc["group_ids"])
+                                    except json.JSONDecodeError:
+                                        self.logger.error(f"Error decoding group_ids JSON for task {task_id} during restore: {task_doc.get('group_ids')}. Using empty list.")
+                                        task_doc["group_ids"] = []
+                                if not isinstance(task_doc.get("group_ids"), list):
                                     task_doc["group_ids"] = []
-                            if not isinstance(task_doc.get("group_ids"), list):
-                                task_doc["group_ids"] = []
 
-                            # Set status to running to ensure task continues after restart
-                            # Only if it wasn't explicitly stopped by the user
-                            if task_doc.get("status") != "stopped_by_user":
-                                task_doc["status"] = "running"
-
-                            with self.tasks_lock:
-                                self.active_tasks[task_id] = task_doc
-                                self.task_events[task_id] = threading.Event()
-                            
-                            self.logger.info(f"Restored task {task_id} (Recurring: {task_doc.get('is_recurring', False)}) from JSON.")
-                            restored_count += 1
-                        except Exception as e_task:
-                            self.logger.error(f"Error processing restored task {task_id} from JSON: {e_task}")
+                                with self.tasks_lock:
+                                    self.active_tasks[task_id] = task_doc
+                                    self.task_events[task_id] = threading.Event()
+                                
+                                self.logger.info(f"Restored task {task_id} (Recurring: {task_doc.get('is_recurring', False)}) from JSON.")
+                                restored_count += 1
+                            except Exception as e_task:
+                                self.logger.error(f"Error processing restored task {task_id} from JSON: {e_task}")
                 self.logger.info(f"Restored {restored_count} active posting tasks from {self.active_tasks_json_file}")
             else:
                  self.logger.info(f"{self.active_tasks_json_file} not found. No tasks to restore from JSON.")
@@ -404,162 +399,89 @@ class PostingService:
                     if task_id in self.task_events:
                         del self.task_events[task_id]
         
-        try:
-            loop.run_until_complete(task_coroutine())
-        except Exception as e:
-            self.logger.error(f"Error in task {task_id} loop execution: {e}", exc_info=True)
-        finally:
-            loop.close()
-            self.logger.info(f"Closed event loop for task {task_id}")
+        loop.run_until_complete(task_coroutine())
 
     def stop_posting_task(self, task_id):
-        """Stop a posting task"""
+        """Stop and delete a running posting task"""
         with self.tasks_lock:
-            if task_id not in self.active_tasks:
-                self.logger.warning(f"Task {task_id} not found, cannot stop.")
-                return False
-            
-            if self.active_tasks[task_id]["status"] != "running":
-                self.logger.warning(f"Task {task_id} is not running (status: {self.active_tasks[task_id]['status']}), cannot stop.")
-                return False
-            
-            # Mark task as stopped by user explicitly
-            self.active_tasks[task_id]["status"] = "stopped_by_user"
-            self.active_tasks[task_id]["last_activity"] = datetime.now()
-            
-            # Signal the task to stop
-            if task_id in self.task_events:
-                self.task_events[task_id].set()
-        
-        # Save changes to persistent storage
-        self.save_active_tasks()
-        
-        self.logger.info(f"Stopped task {task_id}")
-        return True
-
-    def stop_all_user_tasks(self, user_id):
-        """Stop all tasks for a specific user"""
-        stopped_count = 0
-        with self.tasks_lock:
-            for task_id, task_data in list(self.active_tasks.items()):
-                if task_data.get("user_id") == user_id and task_data.get("status") == "running":
-                    # Mark as stopped by user explicitly to prevent auto-restart
-                    task_data["status"] = "stopped_by_user"
-                    task_data["last_activity"] = datetime.now()
-                    
-                    # Signal the task to stop
-                    if task_id in self.task_events:
-                        self.task_events[task_id].set()
-                    
-                    stopped_count += 1
-        
-        # Save changes to persistent storage
-        self.save_active_tasks()
-        
-        self.logger.info(f"Stopped {stopped_count} tasks for user {user_id}")
-        return stopped_count
+            if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
+                self.logger.info(f"Attempting to stop and delete task {task_id}")
+                # Signal the thread to stop
+                if task_id in self.task_events:
+                    self.task_events[task_id].set()
+                
+                # Remove the task from active_tasks
+                del self.active_tasks[task_id]
+                
+                # Clean up associated event and thread objects
+                if task_id in self.task_events: # Check again as it might have been cleaned by the thread itself
+                    del self.task_events[task_id]
+                if task_id in self.task_threads: # Check again
+                    del self.task_threads[task_id]
+                
+                self.save_active_tasks() # Save state without the deleted task
+                self.logger.info(f"Task {task_id} stopped and deleted.")
+                return True, "Task stopped and deleted successfully."
+            elif task_id in self.active_tasks:
+                return False, f"Task {task_id} is not currently running (status: {self.active_tasks[task_id].get('status')}). Cannot stop and delete."
+            else:
+                return False, f"Task {task_id} not found."
 
     def get_task_status(self, task_id):
-        """Get status of a specific task"""
+        """Get the status of a specific task"""
         with self.tasks_lock:
-            if task_id not in self.active_tasks:
-                return None
-            
-            task_data = self.active_tasks[task_id].copy()
-            
-            # Convert datetime objects to ISO format strings for JSON serialization
-            if isinstance(task_data.get("start_time"), datetime):
-                task_data["start_time"] = task_data["start_time"].isoformat()
-            if isinstance(task_data.get("last_activity"), datetime):
-                task_data["last_activity"] = task_data["last_activity"].isoformat()
-            
-            # Add task_id to the returned data
-            task_data["task_id"] = task_id
-            
-            return task_data
+            if task_id in self.active_tasks:
+                return self.active_tasks[task_id]
+            return None
 
     def get_all_tasks_status(self, user_id=None):
         """Get status of all tasks, optionally filtered by user_id"""
-        tasks = []
+        tasks_status = []
         with self.tasks_lock:
             for task_id, task_data in self.active_tasks.items():
                 if user_id is None or task_data.get("user_id") == user_id:
-                    task_copy = task_data.copy()
-                    
-                    # Convert datetime objects to ISO format strings for JSON serialization
-                    if isinstance(task_copy.get("start_time"), datetime):
-                        task_copy["start_time"] = task_copy["start_time"].isoformat()
-                    if isinstance(task_copy.get("last_activity"), datetime):
-                        task_copy["last_activity"] = task_copy["last_activity"].isoformat()
-                    
-                    # Add task_id to the returned data
-                    task_copy["task_id"] = task_id
-                    
-                    tasks.append(task_copy)
-        
-        return tasks
+                    # Create a copy and convert datetimes to strings for display/API response
+                    task_display = task_data.copy()
+                    if isinstance(task_display.get("start_time"), datetime):
+                        task_display["start_time"] = task_display["start_time"].isoformat()
+                    if isinstance(task_display.get("last_activity"), datetime):
+                        task_display["last_activity"] = task_display["last_activity"].isoformat()
+                    task_display["task_id"] = task_id # Ensure task_id is part of the returned dict
+                    tasks_status.append(task_display)
+        return tasks_status
 
-    def check_recurring_tasks(self):
-        """Check for recurring tasks that need to be restarted"""
-        self.logger.info("Checking for recurring tasks...")
-        # This method is called during initialization and might need to restart recurring tasks
-        # that were stopped due to a bot restart.
-        # The actual implementation depends on your specific requirements.
-        pass
-
-    def start_auto_save_timer(self):
-        """Start a timer to periodically save active tasks"""
-        def auto_save():
-            while True:
-                time.sleep(60)  # Save every minute
-                self.save_active_tasks()
-        
-        thread = threading.Thread(target=auto_save, daemon=True)
-        thread.start()
-
-    def start_watchdog_timer(self):
-        """Start a watchdog timer to monitor and clean up stale tasks"""
-        def watchdog():
-            while True:
-                time.sleep(300)  # Check every 5 minutes
-                self.cleanup_stale_tasks()
-        
-        thread = threading.Thread(target=watchdog, daemon=True)
-        thread.start()
-
-    def cleanup_stale_tasks(self):
-        """Clean up stale tasks"""
-        self.logger.info("Cleaning up stale tasks...")
-        now = datetime.now()
-        stale_threshold = timedelta(hours=24)  # Consider tasks stale after 24 hours of inactivity
-        
+    def stop_all_user_tasks(self, user_id):
+        """Stop and delete all running tasks for a specific user"""
+        deleted_tasks_count = 0
         with self.tasks_lock:
-            for task_id, task_data in list(self.active_tasks.items()):
-                last_activity = task_data.get("last_activity")
-                if isinstance(last_activity, str):
-                    try:
-                        last_activity = datetime.fromisoformat(last_activity)
-                    except ValueError:
-                        continue
+            tasks_to_delete_ids = []
+            # Collect task_ids to stop and delete
+            for task_id, task_data in list(self.active_tasks.items()): # Iterate over a copy for safe deletion
+                if task_data.get("user_id") == user_id and task_data.get("status") == "running":
+                    tasks_to_delete_ids.append(task_id)
+            
+            for task_id in tasks_to_delete_ids:
+                self.logger.info(f"Stopping and deleting task {task_id} for user {user_id}")
+                # Signal the thread to stop
+                if task_id in self.task_events:
+                    self.task_events[task_id].set() # Signal the thread to stop
                 
-                if not isinstance(last_activity, datetime):
-                    continue
+                # Remove the task from active_tasks
+                if task_id in self.active_tasks: # Check if still exists
+                    del self.active_tasks[task_id]
                 
-                if now - last_activity > stale_threshold:
-                    if task_data.get("status") == "running":
-                        self.logger.info(f"Marking stale task {task_id} as stopped")
-                        task_data["status"] = "stopped"
-                        task_data["last_activity"] = now
-                    elif task_data.get("status") in ["stopped", "completed", "failed"]:
-                        self.logger.info(f"Removing stale task {task_id} with status {task_data.get('status')}")
-                        del self.active_tasks[task_id]
-                        if task_id in self.task_events:
-                            del self.task_events[task_id]
-                        if task_id in self.task_threads:
-                            del self.task_threads[task_id]
+                # Clean up associated event and thread objects
+                if task_id in self.task_events: # Check again as it might have been cleaned by the thread itself
+                    del self.task_events[task_id]
+                if task_id in self.task_threads: # Check again
+                    del self.task_threads[task_id]
+                
+                deleted_tasks_count += 1
         
-        # Save changes to persistent storage
-        self.save_active_tasks()
+        if deleted_tasks_count > 0:
+            self.save_active_tasks() # Save changes after deletions
+        self.logger.info(f"Stopped and deleted {deleted_tasks_count} tasks for user {user_id}")
+        return deleted_tasks_count
 
     def delete_task_history(self, user_id, task_id=None):
         """Delete task history for a user, or a specific task"""
@@ -724,3 +646,4 @@ class PostingService:
         
         self.logger.info(f"Permanently cleared {cleared_count} posting tasks.")
         return True, f"✅ تم مسح جميع مهام النشر ({cleared_count}) بشكل دائم."
+
