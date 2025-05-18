@@ -49,5 +49,21 @@
         "message_count": 2,
         "message_id": null,
         "is_recurring": true
+    },
+    "7207131508_1747541789.266759": {
+        "user_id": 7207131508,
+        "post_id": "1747541789.2667446",
+        "message": "1",
+        "group_ids": [
+            "-1001599134989"
+        ],
+        "delay_seconds": 20,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-18T04:16:29.266763",
+        "last_activity": "2025-05-18T04:16:29.266763",
+        "message_count": 0,
+        "message_id": null,
+        "is_recurring": true
     }
 }
