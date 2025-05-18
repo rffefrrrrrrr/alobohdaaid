@@ -163,7 +163,7 @@ class EnhancedChannelSubscription:
     async def check_user_subscription(self, user_id, bot):
         """التحقق من اشتراك المستخدم في القناة المطلوبة"""
         if not self.is_mandatory_subscription():
-            return True
+            return True, "لا يوجد اشتراك إجباري مفعل"
 
         try:
             # التحقق من اشتراك المستخدم في القناة
@@ -171,11 +171,14 @@ class EnhancedChannelSubscription:
             status = chat_member.status
             # المستخدم مشترك إذا كان عضواً أو مشرفاً أو مالكاً
             is_subscribed = status in ['member', 'administrator', 'creator']
-            return is_subscribed
+            if is_subscribed:
+                return is_subscribed, "المستخدم مشترك في القناة"
+            else:
+                return is_subscribed, f"المستخدم غير مشترك في القناة {self.required_channel}"
         except Exception as e:
             logger.error(f"خطأ أثناء التحقق من اشتراك المستخدم {user_id} في القناة {self.required_channel}. نوع الخطأ: {type(e).__name__}. الرسالة: {str(e)}", exc_info=True)
             # في حالة حدوث خطأ، نفترض أن المستخدم غير مشترك
-            return False
+            return False, f"حدث خطأ أثناء التحقق: {str(e)}"
 
     async def check_bot_is_admin(self, bot):
         """التحقق مما إذا كان البوت مشرفاً في القناة المطلوبة"""
@@ -240,7 +243,7 @@ class EnhancedChannelSubscription:
                 return
 
         # التحقق من اشتراك المستخدم
-        is_subscribed = await self.check_user_subscription(user_id, context.bot)
+        is_subscribed, error_message = await self.check_user_subscription(user_id, context.bot)
         if not is_subscribed:
             # إرسال رسالة الاشتراك الإجباري
             channel = self.get_required_channel()
@@ -307,7 +310,7 @@ def auto_channel_subscription_required(func):
 
         # التحقق من اشتراك المستخدم
         if subscription_manager.is_mandatory_subscription():
-            is_subscribed = await subscription_manager.check_user_subscription(user_id, context.bot)
+            is_subscribed, error_message = await subscription_manager.check_user_subscription(user_id, context.bot)
             if not is_subscribed:
                 channel = subscription_manager.get_required_channel()
                 logger.info(f"Decorator check: User {user_id} not subscribed. Required channel: {channel}") # Added logging
@@ -331,14 +334,5 @@ def auto_channel_subscription_required(func):
                 return None # Stop processing the command
 
         return await func(self, update, context, *args, **kwargs)
+
     return wrapped
-
-def setup_enhanced_subscription(application):
-    """إعداد وسيط التحقق من الاشتراك"""
-    # إضافة وسيط للتحقق من الاشتراك لجميع الرسائل
-    application.add_handler(
-        MessageHandler(filters.ALL, subscription_manager.subscription_middleware),
-        group=-1  # أولوية عالية لضمان تنفيذ الوسيط قبل معالجة الرسائل
-    )
-
-    return subscription_manager

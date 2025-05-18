@@ -22,12 +22,14 @@ async def subscription_check_callback(update: Update, context: CallbackContext):
     await query.answer()
 
     # Get the channel subscription instance
-    from utils.channel_subscription_fix import enhanced_channel_subscription
+    from utils.channel_subscription import enhanced_channel_subscription
 
     # Check if user is subscribed to the channel
-    is_subscribed, required_channel = await enhanced_channel_subscription.check_user_subscription(
-        context.bot, user_id
-    )
+    is_subscribed, error_message = await enhanced_channel_subscription.check_user_subscription(user_id, context.bot)
+    
+    # Get the required channel
+    required_channel = enhanced_channel_subscription.get_required_channel()
+    
     if is_subscribed:
         # User is subscribed, show success message
         # Check if required_channel is available before using it

@@ -97,7 +97,7 @@ def subscription_required(func):
         # Check if user has active subscription or is admin
         if user and (user.has_active_subscription() or user.is_admin):
             # Check channel subscription automatically - FIX: Use subscription_manager instead of channel_subscription
-            is_subscribed = await subscription_manager.check_user_subscription(user_id, context.bot)
+            is_subscribed, error_message = await subscription_manager.check_user_subscription(user_id, context.bot)
             required_channel = subscription_manager.get_required_channel()
 
             # If user is admin, bypass channel subscription check
