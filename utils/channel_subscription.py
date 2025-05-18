@@ -328,11 +328,37 @@ def auto_channel_subscription_required(func):
                     )
                 else:
                      logger.warning(f"Decorator check: User {user_id} not subscribed, but no required channel is set. Cannot prompt.")
-                     # يمكنك إضافة رسالة عامة هنا إذا أردت
-                     # await update.effective_message.reply_text("⚠️ يتطلب استخدام هذا الأمر الاشتراك في القناة الإجبارية، ولكن لم يتم تعيين قناة حالياً.")
-
-                return None # Stop processing the command
-
+                     # يمكنك إضاف
+                return # Don't proceed with the handler
+        
+        # إذا وصلنا إلى هنا، فإما أن الاشتراك غير إجباري أو المستخدم مشترك بالفعل
         return await func(self, update, context, *args, **kwargs)
-
+    
     return wrapped
+
+# إضافة الدالة المفقودة setup_enhanced_subscription
+def setup_enhanced_subscription(application, channel=None, duration_days=None):
+    """
+    إعداد نظام الاشتراك الإجباري المحسن
+    
+    Args:
+        application: تطبيق التيليجرام
+        channel: اسم القناة المطلوبة للاشتراك (اختياري)
+        duration_days: مدة الاشتراك الإجباري بالأيام (اختياري)
+    """
+    logger.info("بدء إعداد نظام الاشتراك الإجباري المحسن")
+    
+    # تعيين القناة المطلوبة إذا تم تحديدها
+    if channel:
+        subscription_manager.set_required_channel(channel, duration_days)
+        logger.info(f"تم تعيين القناة المطلوبة للاشتراك الإجباري: {channel}")
+    
+    # تفعيل وسيط التحقق من الاشتراك لجميع الرسائل ما عدا أمر /subscription
+    subscription_manager.middleware_handler = MessageHandler(
+        filters.ALL & ~filters.UpdateType.EDITED & filters.ChatType.PRIVATE & ~filters.Command(['subscription', 'sub']),
+        subscription_manager.subscription_middleware
+    )
+    application.add_handler(subscription_manager.middleware_handler, group=-1)  # أولوية عالية
+    
+    logger.info("تم إعداد نظام الاشتراك الإجباري المحسن بنجاح")
+    return subscription_manager

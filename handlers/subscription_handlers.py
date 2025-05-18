@@ -701,7 +701,8 @@ class SubscriptionHandlers:
                 text=f"❌ حدث خطأ: {str(e)}"
             )
 
-    @subscription_required
+    # تمت إزالة ديكوريتر التحقق من الاشتراك من هذا الأمر
+    # @subscription_required
     async def subscription_status_command(self, update: Update, context: CallbackContext):
         """Show user's subscription status and allow requesting subscription"""
         chat_id = update.effective_chat.id
@@ -723,29 +724,23 @@ class SubscriptionHandlers:
             has_subscription = db_user.has_active_subscription()
             end_date = db_user.subscription_end
 
-            # التحقق من اشتراك المستخدم في القناة الإجبارية
+            # تم إزالة التحقق من اشتراك المستخدم في القناة الإجبارية من هذا الأمر
             required_channel = channel_subscription.get_required_channel()
             channel_status = "غير مطلوب"
 
             if required_channel:
+                # فقط عرض معلومات عن القناة المطلوبة دون التحقق أو منع المستخدم
                 is_subscribed, _ = await channel_subscription.check_user_subscription(user_id, context.bot)
                 channel_status = f"✅ مشترك في {required_channel}" if is_subscribed else f"❌ غير مشترك في {required_channel}"
-
-                # إذا كان المستخدم غير مشترك في القناة، إظهار زر للاشتراك
-                if not is_subscribed:
-                    keyboard = [
-                        [InlineKeyboardButton("✅ اشترك في القناة", url=f"https://t.me/{required_channel[1:]}")],
-                        [InlineKeyboardButton("🔄 تحقق مرة أخرى", callback_data="subscription_check")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"❌ لم يتم العثور على اشتراكك في القناة {required_channel}.\n\n"
-                             f"يرجى الاشتراك في القناة ثم الضغط على زر 'تحقق مرة أخرى'.",
-                        reply_markup=reply_markup
-                    )
-                    return
+                
+                # إضافة زر للاشتراك في القناة بغض النظر عن حالة الاشتراك
+                keyboard = [
+                    [InlineKeyboardButton("✅ اشترك في القناة", url=f"https://t.me/{required_channel[1:]}")],
+                    [InlineKeyboardButton("🔄 تحقق مرة أخرى", callback_data="subscription_check")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # لا نقوم بإيقاف تنفيذ الأمر حتى لو كان المستخدم غير مشترك
 
             if has_subscription:
                 # Fix: Check if end_date is None before calling strftime
@@ -1670,7 +1665,8 @@ class SubscriptionHandlers:
                 text=f"❌ حدث خطأ: {str(e)}"
             )
 
-    @subscription_required
+    # تمت إزالة ديكوريتر التحقق من الاشتراك من هذا الأمر
+    # @subscription_required
     async def subscription_status_command(self, update: Update, context: CallbackContext):
         """Show user's subscription status and allow requesting subscription"""
         # --- BEGIN INSERTED CODE ---

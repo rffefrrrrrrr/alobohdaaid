@@ -49,5 +49,21 @@
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
+    },
+    "7207131508_1747536368.374305": {
+        "user_id": 7207131508,
+        "post_id": "1747536368.3742902",
+        "message": "gg",
+        "group_ids": [
+            "-1001599134989"
+        ],
+        "delay_seconds": 20,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-18T02:46:08.374308",
+        "last_activity": "2025-05-18T02:46:08.374308",
+        "message_count": 0,
+        "message_id": null,
+        "is_recurring": true
     }
 }
