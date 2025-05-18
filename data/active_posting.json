@@ -10,8 +10,8 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T20:25:05.126291",
-        "last_activity": "2025-05-18T20:25:05.126292",
+        "start_time": "2025-05-18T20:25:05.026071",
+        "last_activity": "2025-05-18T20:25:05.026072",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -27,8 +27,8 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T20:25:05.130040",
-        "last_activity": "2025-05-18T20:25:05.130041",
+        "start_time": "2025-05-18T20:25:05.126059",
+        "last_activity": "2025-05-18T20:25:05.126060",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -44,8 +44,8 @@
         "delay_seconds": 400,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T20:25:05.138292",
-        "last_activity": "2025-05-18T20:25:05.138293",
+        "start_time": "2025-05-18T20:25:05.128267",
+        "last_activity": "2025-05-18T20:25:47.675951",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -62,8 +62,8 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T20:25:05.143762",
-        "last_activity": "2025-05-18T20:25:05.143763",
+        "start_time": "2025-05-18T20:25:05.140650",
+        "last_activity": "2025-05-18T20:25:07.907971",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -78,24 +78,26 @@
         "delay_seconds": 30,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T20:25:05.152983",
-        "last_activity": "2025-05-18T20:25:05.152984",
+        "start_time": "2025-05-18T20:25:05.143587",
+        "last_activity": "2025-05-18T20:28:07.837973",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
     },
-    "7207131508_1747599009.8052685": {
-        "user_id": 7207131508,
-        "post_id": "1747599009.8052523",
-        "message": "متوفر نتفلكس في بي ان",
+    "6744224791_1747600089.23901": {
+        "user_id": 6744224791,
+        "post_id": "1747600089.2389903",
+        "message": "https://t.me/bbb4g",
         "group_ids": [
-            "-1001599134989"
+            "-1001940135568",
+            "-1001775268093",
+            "-1002074416596"
         ],
-        "delay_seconds": 40,
+        "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T20:25:05.165849",
-        "last_activity": "2025-05-18T20:25:05.165850",
+        "start_time": "2025-05-18T20:28:09.239015",
+        "last_activity": "2025-05-18T20:28:09.239015",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
