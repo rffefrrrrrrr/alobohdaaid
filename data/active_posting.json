@@ -63,8 +63,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-18T10:41:52.170458",
-        "last_activity": "2025-05-18T10:41:56.101929",
-        "message_count": 2,
+        "last_activity": "2025-05-18T11:12:14.555783",
+        "message_count": 14,
         "message_id": null,
         "is_recurring": true
     },
@@ -79,7 +79,25 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-18T10:42:28.094879",
-        "last_activity": "2025-05-18T10:42:28.094879",
+        "last_activity": "2025-05-18T11:15:52.567691",
+        "message_count": 11,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6744224791_1747567021.797388": {
+        "user_id": 6744224791,
+        "post_id": "1747567021.7973773",
+        "message": "https://t.me/uuu4v",
+        "group_ids": [
+            "-1001940135568",
+            "-1001775268093",
+            "-1002074416596"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-18T11:17:01.797392",
+        "last_activity": "2025-05-18T11:17:01.797392",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
