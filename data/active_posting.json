@@ -10,8 +10,8 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T00:45:52.277372",
-        "last_activity": "2025-05-18T00:45:52.550900",
+        "start_time": "2025-05-18T02:51:43.532659",
+        "last_activity": "2025-05-18T02:54:13.638336",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -27,8 +27,8 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T00:45:52.280624",
-        "last_activity": "2025-05-18T00:45:52.547851",
+        "start_time": "2025-05-18T02:51:43.536348",
+        "last_activity": "2025-05-18T02:54:12.650077",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -44,25 +44,9 @@
         "delay_seconds": 400,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T00:45:52.282499",
-        "last_activity": "2025-05-18T00:45:52.550069",
-        "message_count": 0,
-        "message_id": null,
-        "is_recurring": true
-    },
-    "7207131508_1747536368.374305": {
-        "user_id": 7207131508,
-        "post_id": "1747536368.3742902",
-        "message": "gg",
-        "group_ids": [
-            "-1001599134989"
-        ],
-        "delay_seconds": 20,
-        "exact_time": null,
-        "status": "running",
-        "start_time": "2025-05-18T02:46:08.374308",
-        "last_activity": "2025-05-18T02:46:08.374308",
-        "message_count": 0,
+        "start_time": "2025-05-18T02:51:43.539622",
+        "last_activity": "2025-05-18T02:54:12.837250",
+        "message_count": 1,
         "message_id": null,
         "is_recurring": true
     }
