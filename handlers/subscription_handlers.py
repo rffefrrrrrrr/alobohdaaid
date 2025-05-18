@@ -391,12 +391,11 @@ class SubscriptionHandlers:
             logger.error(f"خطأ في معالجة مغادرة عضو: {str(e)}")
 
     def record_group_activity(self, user_id, group_id, group_title, action):
-        """Record user group activity in database"""
+        """Record user group activity"""
         try:
             conn = sqlite3.connect('data/user_statistics.sqlite')
             cursor = conn.cursor()
 
-            # Record activity
             cursor.execute(
                 '''
                 INSERT INTO group_activity 
@@ -452,8 +451,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def statistics_command(self, update: Update, context: CallbackContext):
-
-
         """Show user statistics"""
         chat_id = update.effective_chat.id
 
@@ -517,8 +514,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def remove_user_command(self, update: Update, context: CallbackContext):
-
-
         """Remove a user's subscription. Format: /removeuser USER_ID"""
         chat_id = update.effective_chat.id
 
@@ -574,8 +569,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def check_user_command(self, update: Update, context: CallbackContext):
-
-
         """Check a user's subscription status. Format: /checkuser USER_ID"""
         chat_id = update.effective_chat.id
 
@@ -675,8 +668,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def list_users_command(self, update: Update, context: CallbackContext):
-
-
         """List all users with active subscriptions"""
         chat_id = update.effective_chat.id
 
@@ -712,8 +703,6 @@ class SubscriptionHandlers:
 
     @subscription_required
     async def subscription_status_command(self, update: Update, context: CallbackContext):
-
-
         """Show user's subscription status and allow requesting subscription"""
         # --- BEGIN INSERTED CODE ---
         from telegram import Update # Ensure Update is imported
@@ -1062,51 +1051,67 @@ class SubscriptionHandlers:
             except:
                 pass
 
-
-    # Placeholder for the missing method
-    def check_subscription_status(self, user_id: int) -> bool:
+    # --- BEGIN FIX ---
+    # Fix the overloaded method issue by renaming and clearly separating the two methods
+    def check_user_subscription(self, user_id: int) -> bool:
         """
         Checks if a user has an active subscription.
-        This is a placeholder implementation.
+        This is for direct user_id checks.
         """
-        logger.info(f"SubscriptionHandlers.check_subscription_status called for user_id: {user_id}")
+        logger.info(f"SubscriptionHandlers.check_user_subscription called for user_id: {user_id}")
         # Delegate to the subscription_service for the actual check
         if self.subscription_service:
             return self.subscription_service.check_subscription(user_id)
-        logger.warning(f"SubscriptionService not available in SubscriptionHandlers for check_subscription_status for user_id: {user_id}")
+        logger.warning(f"SubscriptionService not available in SubscriptionHandlers for check_user_subscription for user_id: {user_id}")
         return False
 
-
-
-
-    async def check_subscription_status(self, update: Update, context: CallbackContext):
+    async def check_subscription_status(self, user_id_or_update, context_or_bot=None):
         """
-        Checks if the user has an active bot subscription and is subscribed to the mandatory channel (if any).
-        This method is intended to be used by decorators or internal checks.
-        Returns True if all checks pass, False otherwise.
-        It does NOT send messages to the user; the caller (e.g., decorator) should handle that.
+        Unified method to check subscription status that handles both int and Update objects.
+        
+        Args:
+            user_id_or_update: Either an int (user_id) or an Update object
+            context_or_bot: Either a CallbackContext or a Bot object
+            
+        Returns:
+            bool: True if user has active subscription and channel subscription, False otherwise
         """
-        user = update.effective_user
-        if not user:
-            logger.warning("check_subscription_status called with no effective_user in update.")
-            return False
-        user_id = user.id
-
+        # Determine if we're dealing with an Update object or a user_id
+        if isinstance(user_id_or_update, Update):
+            # It's an Update object
+            update = user_id_or_update
+            context = context_or_bot
+            
+            user = update.effective_user
+            if not user:
+                logger.warning("check_subscription_status called with Update that has no effective_user")
+                return False
+                
+            user_id = user.id
+            bot = context.bot
+        else:
+            # It's a user_id (int)
+            user_id = user_id_or_update
+            
+            # Determine if we have a context or a bot
+            if hasattr(context_or_bot, 'bot'):
+                bot = context_or_bot.bot
+            else:
+                bot = context_or_bot
+        
         # 1. Check bot subscription
         if not self.subscription_service.check_subscription(user_id):
-            logger.info(f"User {user_id} failed bot subscription check in SubscriptionHandlers.check_subscription_status.")
+            logger.info(f"User {user_id} failed bot subscription check in check_subscription_status")
             return False
-
+            
         # 2. Check mandatory channel subscription
-        # Ensure channel_subscription is imported and available in this scope
-        # from utils.channel_subscription import channel_subscription (should be at top of file)
         required_channel = channel_subscription.get_required_channel()
-        if required_channel:
-            is_channel_subscribed, _ = await channel_subscription.check_user_subscription(context.bot, user_id)
+        if required_channel and bot:
+            is_channel_subscribed, _ = await channel_subscription.check_user_subscription(bot, user_id)
             if not is_channel_subscribed:
-                logger.info(f"User {user_id} failed mandatory channel ({required_channel}) subscription check in SubscriptionHandlers.check_subscription_status.")
+                logger.info(f"User {user_id} failed mandatory channel ({required_channel}) subscription check")
                 return False
-        
-        logger.info(f"User {user_id} passed all subscription checks in SubscriptionHandlers.check_subscription_status.")
+                
+        logger.info(f"User {user_id} passed all subscription checks")
         return True
-
+    # --- END FIX ---
