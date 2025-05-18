@@ -111,6 +111,19 @@ class PostingService:
                 # قائمة لتخزين معرفات المحتوى للمهام المستعادة لمنع التكرار
                 restored_content_hashes = set()
                 
+                # تحقق من المهام الموجودة في الذاكرة قبل الاستعادة
+                existing_content_hashes = set()
+                with self.tasks_lock:
+                    for existing_task_id, existing_task in self.active_tasks.items():
+                        if existing_task.get("status") == "running":
+                            user_id = existing_task.get("user_id")
+                            message = existing_task.get("message", "")
+                            group_ids = existing_task.get("group_ids", [])
+                            group_ids_str = ','.join(sorted([str(g) for g in group_ids]))
+                            existing_content_hash = f"{user_id}_{message}_{group_ids_str}"
+                            existing_content_hashes.add(existing_content_hash)
+                            self.logger.info(f"Found existing task with content hash: {existing_content_hash}")
+                
                 if loaded_tasks_from_json and isinstance(loaded_tasks_from_json, dict):
                     for task_id, task_doc in loaded_tasks_from_json.items():
                         # Only restore tasks that were running or explicitly marked for restore
@@ -144,9 +157,13 @@ class PostingService:
                                 group_ids_str = ','.join(sorted([str(g) for g in group_ids]))
                                 task_content_hash = f"{user_id}_{message}_{group_ids_str}"
                                 
-                                # التحقق من وجود مهمة مطابقة تمت استعادتها بالفعل
+                                # التحقق من وجود مهمة مطابقة تمت استعادتها بالفعل أو موجودة في الذاكرة
                                 if task_content_hash in restored_content_hashes:
                                     self.logger.warning(f"Duplicate task detected during restore: {task_id} with content hash {task_content_hash}. Skipping.")
+                                    continue
+                                
+                                if task_content_hash in existing_content_hashes:
+                                    self.logger.warning(f"Task already exists in memory: {task_id} with content hash {task_content_hash}. Skipping.")
                                     continue
                                 
                                 # إضافة معرف المحتوى إلى القائمة لمنع استعادة مهام مكررة
@@ -161,12 +178,32 @@ class PostingService:
                                 
                                 # إعادة تشغيل خيط النشر للمهمة المستعادة
                                 if user_id:
-                                    # إنشاء خيط جديد لتنفيذ المهمة المستعادة
-                                    self.logger.info(f"Restarting execution thread for restored task {task_id} for user {user_id}")
-                                    thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
-                                    self.task_threads[task_id] = thread
-                                    thread.start()
-                                    restarted_count += 1
+                                    # تحقق إضافي من عدم وجود خيط نشط لنفس المهمة
+                                    should_start_thread = True
+                                    for thread_id, thread in self.task_threads.items():
+                                        if thread_id != task_id and thread.is_alive():
+                                            thread_task = self.active_tasks.get(thread_id)
+                                            if thread_task:
+                                                thread_user_id = thread_task.get("user_id")
+                                                thread_message = thread_task.get("message", "")
+                                                thread_group_ids = thread_task.get("group_ids", [])
+                                                thread_group_ids_str = ','.join(sorted([str(g) for g in thread_group_ids]))
+                                                thread_content_hash = f"{thread_user_id}_{thread_message}_{thread_group_ids_str}"
+                                                
+                                                if thread_content_hash == task_content_hash:
+                                                    self.logger.warning(f"Thread already running for same content: {thread_id} with hash {thread_content_hash}. Skipping thread start for {task_id}.")
+                                                    should_start_thread = False
+                                                    break
+                                    
+                                    if should_start_thread:
+                                        # إنشاء خيط جديد لتنفيذ المهمة المستعادة
+                                        self.logger.info(f"Restarting execution thread for restored task {task_id} for user {user_id}")
+                                        thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
+                                        self.task_threads[task_id] = thread
+                                        thread.start()
+                                        restarted_count += 1
+                                    else:
+                                        self.logger.info(f"Skipped starting thread for task {task_id} as similar thread is already running.")
                                 else:
                                     self.logger.error(f"Cannot restart task {task_id}: missing user_id")
                             except Exception as e_task:
@@ -467,6 +504,80 @@ class PostingService:
         
         loop.run_until_complete(task_coroutine())
 
+    def permanently_delete_task(self, task_id):
+        """حذف نهائي لمهمة النشر من جميع مصادر التخزين"""
+        with self.tasks_lock:
+            if task_id in self.active_tasks:
+                self.logger.info(f"Permanently deleting task {task_id} from all storage sources")
+                
+                # حفظ معرف المستخدم قبل حذف المهمة
+                user_id = self.active_tasks[task_id].get("user_id")
+                
+                # إيقاف الخيط إذا كان نشطاً
+                if self.active_tasks[task_id].get("status") == "running" and task_id in self.task_events:
+                    self.task_events[task_id].set()
+                    self.logger.info(f"Signaled thread for task {task_id} to stop")
+                
+                # حذف المهمة من الذاكرة
+                del self.active_tasks[task_id]
+                
+                # تنظيف الكائنات المرتبطة
+                if task_id in self.task_events:
+                    del self.task_events[task_id]
+                if task_id in self.task_threads:
+                    del self.task_threads[task_id]
+                
+                # حذف المهمة من ملف JSON مباشرة
+                self._remove_task_from_json(task_id, user_id)
+                
+                # حذف المهمة من قاعدة البيانات SQLite
+                self._remove_task_from_db(task_id, user_id)
+                
+                # حذف من أي مصادر تخزين أخرى
+                try:
+                    # حذف من ملفات JSON الاحتياطية القديمة
+                    old_backup_files = [
+                        os.path.join('services', 'active_tasks.json'),
+                        os.path.join('data', 'active_tasks_backup.json')
+                    ]
+                    
+                    for backup_file in old_backup_files:
+                        if os.path.exists(backup_file):
+                            try:
+                                with open(backup_file, 'r') as f:
+                                    backup_tasks = json.load(f)
+                                
+                                # حذف المهمة المحددة
+                                if task_id in backup_tasks:
+                                    del backup_tasks[task_id]
+                                
+                                # حذف جميع مهام المستخدم
+                                if user_id:
+                                    tasks_to_remove = []
+                                    for tid, task_data in backup_tasks.items():
+                                        if task_data.get('user_id') == user_id:
+                                            tasks_to_remove.append(tid)
+                                    
+                                    for tid in tasks_to_remove:
+                                        if tid in backup_tasks:
+                                            del backup_tasks[tid]
+                                
+                                # حفظ الملف المحدث
+                                with open(backup_file, 'w') as f:
+                                    json.dump(backup_tasks, f, indent=4)
+                                
+                                self.logger.info(f"Removed task {task_id} from backup file {backup_file}")
+                            except Exception as e:
+                                self.logger.error(f"Error removing task from backup file {backup_file}: {str(e)}")
+                except Exception as e:
+                    self.logger.error(f"Error cleaning up additional storage sources: {str(e)}")
+                
+                self.save_active_tasks() # حفظ الحالة النهائية
+                self.logger.info(f"Task {task_id} permanently deleted from all storage sources")
+                return True, "Task permanently deleted from all storage sources"
+            else:
+                return False, f"Task {task_id} not found"
+
     def stop_posting_task(self, task_id):
         """Stop and delete a running posting task"""
         with self.tasks_lock:
@@ -479,6 +590,13 @@ class PostingService:
                 # حفظ معرف المستخدم قبل حذف المهمة لاستخدامه في حذف البيانات من JSON
                 user_id = self.active_tasks[task_id].get("user_id")
                 
+                # حفظ معرف المحتوى للمهمة لمنع استعادتها لاحقاً
+                message = self.active_tasks[task_id].get("message", "")
+                group_ids = self.active_tasks[task_id].get("group_ids", [])
+                group_ids_str = ','.join(sorted([str(g) for g in group_ids]))
+                task_content_hash = f"{user_id}_{message}_{group_ids_str}"
+                self.logger.info(f"Stopping task with content hash: {task_content_hash}")
+                
                 # Remove the task from active_tasks
                 del self.active_tasks[task_id]
                 
@@ -490,6 +608,9 @@ class PostingService:
                 
                 # حذف المهمة من ملف JSON مباشرة
                 self._remove_task_from_json(task_id, user_id)
+                
+                # حذف المهمة من قاعدة البيانات SQLite
+                self._remove_task_from_db(task_id, user_id)
                 
                 self.save_active_tasks() # Save state without the deleted task
                 self.logger.info(f"Task {task_id} stopped and deleted.")
@@ -513,6 +634,9 @@ class PostingService:
                 # حذف المهمة من ملف JSON مباشرة
                 self._remove_task_from_json(task_id, user_id)
                 
+                # حذف المهمة من قاعدة البيانات SQLite
+                self._remove_task_from_db(task_id, user_id)
+                
                 self.save_active_tasks() # حفظ الحالة بدون المهمة المحذوفة
                 
                 return True, f"Task {task_id} deleted successfully."
@@ -522,6 +646,66 @@ class PostingService:
     def _remove_task_from_json(self, task_id, user_id=None):
         """حذف مهمة محددة من ملف JSON مباشرة"""
         self.logger.info(f"Removing task {task_id} directly from JSON file")
+        try:
+            if os.path.exists(self.active_tasks_json_file):
+                with open(self.active_tasks_json_file, 'r', encoding='utf-8') as f:
+                    tasks = json.load(f)
+                
+                # حذف المهمة المحددة
+                if task_id in tasks:
+                    del tasks[task_id]
+                    self.logger.info(f"Removed task {task_id} from JSON file")
+                
+                # حذف جميع مهام المستخدم إذا تم تحديد معرف المستخدم
+                if user_id:
+                    tasks_to_remove = []
+                    for tid, task_data in tasks.items():
+                        if task_data.get('user_id') == user_id:
+                            tasks_to_remove.append(tid)
+                    
+                    for tid in tasks_to_remove:
+                        if tid in tasks:
+                            del tasks[tid]
+                            self.logger.info(f"Removed task {tid} for user {user_id} from JSON file")
+                
+                # حفظ الملف المحدث
+                with open(self.active_tasks_json_file, 'w', encoding='utf-8') as f:
+                    json.dump(tasks, f, indent=4, ensure_ascii=False)
+                
+                self.logger.info(f"Successfully updated JSON file after removing task(s)")
+            else:
+                self.logger.warning(f"JSON file {self.active_tasks_json_file} not found when trying to remove task {task_id}")
+        except Exception as e:
+            self.logger.error(f"Error removing task {task_id} from JSON file: {str(e)}")
+            
+    def _remove_task_from_db(self, task_id, user_id=None):
+        """حذف مهمة محددة من قاعدة البيانات SQLite"""
+        self.logger.info(f"Removing task {task_id} from SQLite database")
+        try:
+            # حذف من قاعدة البيانات SQLite إذا كانت موجودة
+            db_path = os.path.join('data', 'telegram_bot.db')
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                # حذف المهمة المحددة
+                cursor.execute("DELETE FROM active_tasks WHERE task_id = ?", (task_id,))
+                deleted_count = cursor.rowcount
+                self.logger.info(f"Removed {deleted_count} entries for task {task_id} from database")
+                
+                # حذف جميع مهام المستخدم إذا تم تحديد معرف المستخدم
+                if user_id:
+                    cursor.execute("DELETE FROM active_tasks WHERE user_id = ?", (user_id,))
+                    deleted_user_count = cursor.rowcount
+                    self.logger.info(f"Removed {deleted_user_count} entries for user {user_id} from database")
+                
+                # حفظ التغييرات
+                conn.commit()
+                conn.close()
+            else:
+                self.logger.warning(f"Database file {db_path} not found when trying to remove task {task_id}")
+        except Exception as e:
+            self.logger.error(f"Error removing task {task_id} from database: {str(e)}")
         try:
             if os.path.exists(self.active_tasks_json_file):
                 with open(self.active_tasks_json_file, 'r', encoding='utf-8') as f:
