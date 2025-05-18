@@ -186,19 +186,40 @@ class PostingService:
 
     def start_posting_task(self, user_id, post_id, message, group_ids, delay_seconds=None, exact_time=None, is_recurring=False):
         """Start a new posting task"""
-        # إضافة فحص للمهام النشطة للمستخدم لمنع النشر المزدوج
-        with self.tasks_lock:
-            # فحص المهام النشطة للمستخدم
-            for existing_task_id, existing_task in self.active_tasks.items():
-                if (existing_task.get("user_id") == user_id and 
-                    existing_task.get("status") == "running" and
-                    existing_task.get("message") == message and
-                    set(existing_task.get("group_ids", [])) == set(group_ids)):
-                    # وجدنا مهمة مطابقة بالفعل قيد التشغيل
-                    self.logger.warning(f"Duplicate posting task detected for user {user_id}. Existing task: {existing_task_id}")
-                    return existing_task_id, False
+        # تحسين فحص المهام المتكررة لمنع النشر المزدوج
+        # إنشاء معرف فريد للمهمة بناءً على محتواها
+        task_content_hash = f"{user_id}_{message}_{','.join(sorted([str(g) for g in group_ids]))}"
         
-        task_id = str(user_id) + "_" + str(time.time()) # Simple task ID
+        with self.tasks_lock:
+            # فحص جميع المهام (النشطة والمتوقفة والمكتملة) للمستخدم
+            for existing_task_id, existing_task in self.active_tasks.items():
+                # فحص أكثر شمولية للمهام المتشابهة
+                if (existing_task.get("user_id") == user_id and 
+                    existing_task.get("message") == message):
+                    
+                    # تحويل معرفات المجموعات إلى مجموعة من النصوص للمقارنة الدقيقة
+                    existing_groups = set([str(g) for g in existing_task.get("group_ids", [])])
+                    new_groups = set([str(g) for g in group_ids])
+                    
+                    # إذا كانت المجموعات متطابقة
+                    if existing_groups == new_groups:
+                        # إذا كانت المهمة نشطة، نمنع إنشاء مهمة جديدة
+                        if existing_task.get("status") == "running":
+                            self.logger.warning(f"Duplicate posting task detected for user {user_id}. Existing task: {existing_task_id} is already running.")
+                            return existing_task_id, False
+                        
+                        # إذا كانت المهمة متوقفة أو مكتملة ولكن حديثة (خلال الدقيقة الماضية)
+                        if existing_task.get("status") in ["stopped", "completed"]:
+                            last_activity = existing_task.get("last_activity")
+                            if isinstance(last_activity, datetime) and (datetime.now() - last_activity).total_seconds() < 60:
+                                self.logger.warning(f"Similar task {existing_task_id} was recently {existing_task.get('status')}. Preventing duplicate.")
+                                return existing_task_id, False
+            
+            # تسجيل محاولة إنشاء المهمة
+            self.logger.info(f"Creating new task with content hash: {task_content_hash}")
+        
+        # إنشاء معرف مهمة أكثر تحديدًا يتضمن جزءًا من محتوى المهمة
+        task_id = f"{user_id}_{int(time.time())}_{hash(task_content_hash) % 10000}"
         start_time = datetime.now()
 
         task_data = {

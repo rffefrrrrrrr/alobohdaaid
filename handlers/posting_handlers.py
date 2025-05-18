@@ -703,12 +703,21 @@ class PostingHandlers:
             # Get user ID
             user_id = update.effective_user.id
             
-            # إضافة آلية قفل لمنع النشر المزدوج
-            # تحقق مما إذا كان هذا التأكيد قد تمت معالجته بالفعل
-            confirmation_key = f"{user_id}_{query.message.message_id}"
+            # تحسين آلية قفل التأكيد لمنع النشر المزدوج
+            # الحصول على بيانات النشر من السياق
+            selected_groups = context.user_data.get('selected_group_objects', [])
+            message = context.user_data.get('message', '')
+            
+            # إنشاء مفتاح قفل أكثر تحديدًا يتضمن معلومات المحتوى
+            group_ids_str = ",".join(sorted([str(group.get('group_id', '')) for group in selected_groups]))
+            content_hash = f"{message[:20]}_{group_ids_str[:50]}"  # استخدام جزء من المحتوى لتجنب المفاتيح الطويلة جدًا
+            confirmation_key = f"{user_id}_{query.message.message_id}_{hash(content_hash) % 10000}"
+            
+            # تسجيل محاولة التأكيد للتشخيص
+            self.logger.info(f"Processing confirmation with key: {confirmation_key}")
             
             if confirmation_key in self.confirmation_locks:
-                self.logger.warning(f"Duplicate confirmation detected for user {user_id}, message {query.message.message_id}")
+                self.logger.warning(f"Duplicate confirmation detected for user {user_id}, message {query.message.message_id}, content hash: {hash(content_hash) % 10000}")
                 await query.edit_message_text(
                     "⚠️ *تم معالجة هذا التأكيد بالفعل. يرجى التحقق من حالة النشر باستخدام /status.*",
                     parse_mode="Markdown"
@@ -717,10 +726,12 @@ class PostingHandlers:
             
             # وضع قفل على هذا التأكيد لمنع المعالجة المزدوجة
             self.confirmation_locks[confirmation_key] = True
+            
+            # تسجيل وقت القفل للتشخيص
+            lock_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+            self.logger.info(f"Confirmation lock acquired at {lock_time} for key: {confirmation_key}")
 
             # Get posting data from context
-            selected_groups = context.user_data.get('selected_group_objects', [])
-            message = context.user_data.get('message', '')
             timing = context.user_data.get('timing', 'now')
             exact_time = context.user_data.get('exact_time', None)
             exact_time_dt = context.user_data.get('exact_time_dt', None)  # Get datetime object
@@ -742,6 +753,10 @@ class PostingHandlers:
                 delay_seconds=delay_seconds if timing == "delay" else None,
                 is_recurring=is_recurring
             )
+            
+            # تسجيل نتيجة إنشاء المهمة للتشخيص
+            self.logger.info(f"Task creation result for {confirmation_key}: task_id={task_id}, success={success}")
+            
             result_message = "تم بدء النشر بنجاح." if success else "فشل بدء النشر."
             if success:
                 # Update message with success
@@ -768,16 +783,17 @@ class PostingHandlers:
                 pass
             return ConversationHandler.END
         finally:
-            # تنظيف القفل بعد فترة زمنية (30 ثانية) لتجنب تراكم القفل
-            confirmation_key = f"{user_id}_{query.message.message_id}"
+            # تنظيف القفل بعد فترة زمنية (120 ثانية) لتجنب تراكم القفل
+            # زيادة المدة من 30 إلى 120 ثانية لتقليل فرص التكرار
+            confirmation_key = f"{user_id}_{query.message.message_id}_{hash(content_hash) % 10000}"
             
             def cleanup_lock():
                 if confirmation_key in self.confirmation_locks:
                     del self.confirmation_locks[confirmation_key]
                     self.logger.debug(f"Cleaned up confirmation lock for {confirmation_key}")
             
-            # جدولة تنظيف القفل بعد 30 ثانية
-            threading.Timer(30.0, cleanup_lock).start()
+            # جدولة تنظيف القفل بعد 120 ثانية
+            threading.Timer(120.0, cleanup_lock).start()
 
     async def handle_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle cancel button"""
