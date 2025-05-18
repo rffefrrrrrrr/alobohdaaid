@@ -8,6 +8,13 @@ logger = logging.getLogger(__name__)
 
 async def subscription_check_callback(update: Update, context: CallbackContext):
     """Handle callback when user clicks 'Check Subscription' button"""
+    # --- BEGIN FIX ---
+    # Check if update is an Update object
+    if not isinstance(update, Update):
+        logger.error(f"In subscription_check_callback: Expected 'update' to be of type Update, but got {type(update)}. Value: {str(update)[:200]}")
+        return
+    # --- END FIX ---
+    
     query = update.callback_query
     user_id = update.effective_user.id
 
