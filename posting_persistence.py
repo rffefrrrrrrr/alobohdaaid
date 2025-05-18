@@ -35,8 +35,8 @@ class PostingPersistenceManager:
             with open(self.shutdown_marker_file, 'w') as f:
                 f.write(f"Bot shutdown at {datetime.now().isoformat()}")
             
-            # حذف جميع مهام النشر النشطة
-            self._delete_all_active_tasks()
+            # إيقاف جميع مهام النشر النشطة
+            self._stop_all_active_tasks()
             
             logger.info("Bot shutdown marked successfully")
             return True
@@ -64,41 +64,23 @@ class PostingPersistenceManager:
         """
         تحديد ما إذا كان يجب استعادة مهام النشر عند بدء تشغيل البوت
         """
-        # تحقق من وجود ملف علامة الإيقاف
+        # إذا كان ملف علامة الإيقاف موجوداً، فلا يجب استعادة المهام
         if os.path.exists(self.shutdown_marker_file):
+            logger.info("Shutdown marker found, tasks will not be restored")
+            # حذف ملف علامة الإيقاف بعد التحقق منه
             try:
-                # قراءة محتوى ملف علامة الإيقاف للتحقق من نوع الإيقاف
-                with open(self.shutdown_marker_file, "r") as f:
-                    shutdown_type = f.read().strip()
-                
-                # إذا كان الإيقاف عادياً (بواسطة المستخدم)، فلا يجب استعادة المهام
-                if shutdown_type == "normal":
-                    logger.info("Normal shutdown marker found, tasks will not be restored")
-                    # حذف ملف علامة الإيقاف بعد التحقق منه
-                    os.remove(self.shutdown_marker_file)
-                    return False
-                # إذا كان الإيقاف غير عادي (إعادة تشغيل)، يجب استعادة المهام
-                else:
-                    logger.info("Abnormal shutdown marker found, tasks will be restored")
-                    # حذف ملف علامة الإيقاف بعد التحقق منه
-                    os.remove(self.shutdown_marker_file)
-                    return True
+                os.remove(self.shutdown_marker_file)
             except Exception as e:
-                logger.error(f"Error reading shutdown marker: {str(e)}")
-                # في حالة حدوث خطأ، نفترض أنه يجب استعادة المهام
-                try:
-                    os.remove(self.shutdown_marker_file)
-                except:
-                    pass
-                return True
+                logger.error(f"Error removing shutdown marker: {str(e)}")
+            return False
         
         # إذا لم يكن ملف علامة الإيقاف موجوداً، يجب استعادة المهام
         logger.info("No shutdown marker found, tasks will be restored")
         return True
     
-    def _delete_all_active_tasks(self):
+    def _stop_all_active_tasks(self):
         """
-        حذف جميع مهام النشر النشطة من قاعدة البيانات وملف النسخ الاحتياطي
+        إيقاف جميع مهام النشر النشطة في قاعدة البيانات وملف النسخ الاحتياطي
         """
         try:
             # الاتصال بقاعدة البيانات
@@ -107,21 +89,16 @@ class PostingPersistenceManager:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 
-                # حذف جميع المهام النشطة بدلاً من تحديث حالتها
-                cursor.execute("DELETE FROM active_tasks WHERE status = 'running'")
-                deleted_count = cursor.rowcount
-                logger.info(f"Deleted {deleted_count} active tasks from database")
-                
-                # حذف أيضًا المهام التي تم إيقافها سابقًا لضمان عدم استعادتها
-                cursor.execute("DELETE FROM active_tasks WHERE status = 'stopped'")
-                stopped_deleted_count = cursor.rowcount
-                logger.info(f"Deleted {stopped_deleted_count} stopped tasks from database")
+                # تحديث جميع المهام النشطة إلى حالة 'stopped'
+                cursor.execute("UPDATE active_tasks SET status = 'stopped' WHERE status = 'running'")
+                stopped_count = cursor.rowcount
+                logger.info(f"Stopped {stopped_count} active tasks in database")
                 
                 # حفظ التغييرات
                 conn.commit()
                 conn.close()
             
-            # حذف المهام من ملف النسخ الاحتياطي
+            # تنظيف ملف النسخ الاحتياطي
             backup_file = os.path.join('services', 'active_tasks.json')
             if os.path.exists(backup_file):
                 try:
@@ -129,25 +106,26 @@ class PostingPersistenceManager:
                     with open(backup_file, 'r') as f:
                         tasks = json.load(f)
                     
-                    # إنشاء نسخة جديدة بدون المهام النشطة أو الموقفة
-                    new_tasks = {}
-                    removed_count = 0
+                    # تحديث جميع المهام النشطة إلى 'stopped'
+                    modified = False
                     for task_id, task_data in tasks.items():
-                        if task_data.get('status') != 'running' and task_data.get('status') != 'stopped':
-                            new_tasks[task_id] = task_data
-                        else:
-                            removed_count += 1
+                        if task_data.get('status') == 'running':
+                            task_data['status'] = 'stopped'
+                            modified = True
                     
-                    # حفظ الملف المحدث
-                    with open(backup_file, 'w') as f:
-                        json.dump(new_tasks, f)
-                    logger.info(f"Removed {removed_count} tasks (running and stopped) from backup file")
+                    # حفظ الملف إذا تم تعديله
+                    if modified:
+                        with open(backup_file, 'w') as f:
+                            json.dump(tasks, f)
+                        logger.info(f"Updated tasks in backup file")
+                    else:
+                        logger.info(f"No running tasks found in backup file")
                 except Exception as e:
                     logger.error(f"Error updating backup file: {str(e)}")
             
             return True
         except Exception as e:
-            logger.error(f"Error deleting posting tasks: {str(e)}")
+            logger.error(f"Error stopping posting tasks: {str(e)}")
             return False
 
 # إنشاء نسخة عامة من مدير الاستمرارية
@@ -155,7 +133,7 @@ persistence_manager = PostingPersistenceManager()
 
 def mark_shutdown():
     """
-    وضع علامة على إيقاف البوت بشكل كامل وحذف جميع مهام النشر
+    وضع علامة على إيقاف البوت بشكل كامل وإيقاف جميع مهام النشر
     يتم استدعاء هذه الدالة عند إيقاف البوت بشكل كامل
     """
     return persistence_manager.mark_bot_shutdown()
@@ -175,9 +153,9 @@ def should_restore_tasks():
 
 if __name__ == "__main__":
     # عند تشغيل هذا الملف مباشرة، قم بوضع علامة على إيقاف البوت
-    print("🛑 Marking bot shutdown and deleting all active posting tasks...")
+    print("🛑 Marking bot shutdown and stopping all active posting tasks...")
     if mark_shutdown():
-        print("✅ Successfully marked bot shutdown and deleted all posting tasks.")
+        print("✅ Successfully marked bot shutdown and stopped all posting tasks.")
         print("✅ Next time the bot starts, posting tasks will NOT be restored.")
     else:
         print("❌ Error marking bot shutdown.")

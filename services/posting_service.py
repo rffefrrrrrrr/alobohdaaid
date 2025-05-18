@@ -107,10 +107,12 @@ class PostingService:
                     loaded_tasks_from_json = json.load(f)
                 
                 restored_count = 0
+                restarted_count = 0
                 if loaded_tasks_from_json and isinstance(loaded_tasks_from_json, dict):
                     for task_id, task_doc in loaded_tasks_from_json.items():
-                        # Only restore tasks that were running or explicitly marked for restore
-                        if task_doc.get("status") == "running": 
+                        # تعديل: استعادة جميع المهام النشطة أو المتوقفة أو المتوقفة مؤقتاً
+                        # Restore all tasks that were running, stopped, or paused
+                        if task_doc.get("status") in ["running", "stopped", "paused"]: 
                             try:
                                 # Convert timestamps from string if necessary
                                 start_time_str = task_doc.get("start_time")
@@ -131,17 +133,38 @@ class PostingService:
                                 if not isinstance(task_doc.get("group_ids"), list):
                                     task_doc["group_ids"] = []
 
+                                # تعديل: إعادة تشغيل جميع المهام المتكررة تلقائياً بعد إعادة تشغيل البوت
+                                # Automatically restart all recurring tasks after bot restart
+                                is_recurring = task_doc.get("is_recurring", False)
+                                original_status = task_doc.get("status")
+                                
+                                # Set status to running for all recurring tasks
+                                if is_recurring:
+                                    task_doc["status"] = "running"
+                                    task_doc["last_activity"] = datetime.now()
+                                    restarted_count += 1
+                                    self.logger.info(f"Auto-restarting recurring task {task_id} (previous status: {original_status})")
+
                                 with self.tasks_lock:
                                     self.active_tasks[task_id] = task_doc
                                     self.task_events[task_id] = threading.Event()
-                                    # تعيين علامة خاصة للمهام المستعادة لتجنب النشر المزدوج
-                                    task_doc["restored"] = True
                                 
-                                self.logger.info(f"Restored task {task_id} (Recurring: {task_doc.get('is_recurring', False)}) from JSON.")
+                                self.logger.info(f"Restored task {task_id} (Recurring: {is_recurring}, Status: {task_doc.get('status')}) from JSON.")
                                 restored_count += 1
+                                
+                                # تعديل: إعادة تشغيل المهام المتكررة في خيوط منفصلة
+                                # Start threads for recurring tasks that are now set to running
+                                if is_recurring and task_doc.get("status") == "running":
+                                    user_id = task_doc.get("user_id")
+                                    if user_id:
+                                        thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
+                                        self.task_threads[task_id] = thread
+                                        thread.start()
+                                        self.logger.info(f"Started thread for recurring task {task_id}")
+                                    
                             except Exception as e_task:
                                 self.logger.error(f"Error processing restored task {task_id} from JSON: {e_task}")
-                self.logger.info(f"Restored {restored_count} active posting tasks from {self.active_tasks_json_file}")
+                self.logger.info(f"Restored {restored_count} active posting tasks from {self.active_tasks_json_file} (auto-restarted {restarted_count} recurring tasks)")
             else:
                  self.logger.info(f"{self.active_tasks_json_file} not found. No tasks to restore from JSON.")
         except FileNotFoundError:
@@ -307,8 +330,6 @@ class PostingService:
                     if stop_event and stop_event.is_set():
                         self.logger.info(f"Task {task_id} received stop signal before starting processing cycle.")
                         break # Exit while True
-                        self.logger.info(f"Task {task_id} stop signal detected and processed. Exiting task thread.")
-                        return # Exit the entire task function immediately
 
                     message_text = task_data_current_cycle["message"]
                     group_ids = task_data_current_cycle["group_ids"]
@@ -424,17 +445,6 @@ class PostingService:
                     del self.task_threads[task_id]
                 
                 self.save_active_tasks() # Save state without the deleted task
-                # حذف المهمة من قاعدة البيانات
-                try:
-                    # حذف المهمة من جدول active_tasks في قاعدة البيانات
-                    if hasattr(self, "db") and self.db:
-                        cursor = self.db.get_cursor()
-                        if cursor:
-                            cursor.execute("DELETE FROM active_tasks WHERE task_id = ?", (task_id,))
-                            self.db.commit()
-                            self.logger.info(f"Deleted task {task_id} from database.")
-                except Exception as e:
-                    self.logger.error(f"Error deleting task from database: {str(e)}") # Save state without the deleted task
                 self.logger.info(f"Task {task_id} stopped and deleted.")
                 return True, "Task stopped and deleted successfully."
             elif task_id in self.active_tasks:
@@ -494,31 +504,7 @@ class PostingService:
                 deleted_tasks_count += 1
         
         if deleted_tasks_count > 0:
-        # انتظار للتأكد من توقف جميع الخيوط
-        for task_id in tasks_to_delete_ids:
-            if task_id in self.task_threads and self.task_threads[task_id].is_alive():
-                try:
-                    # انتظار لمدة قصيرة للتأكد من توقف الخيط
-                    self.task_threads[task_id].join(timeout=2.0)
-                    self.logger.info(f"Thread for task {task_id} joined successfully.")
-                except Exception as e:
-                    self.logger.error(f"Error joining thread for task {task_id}: {str(e)}")
-
             self.save_active_tasks() # Save changes after deletions
-            # حذف المهام من قاعدة البيانات
-            try:
-                # حذف المهام من جدول active_tasks في قاعدة البيانات
-                if hasattr(self, "db") and self.db:
-                    cursor = self.db.get_cursor()
-                    if cursor:
-                        # حذف المهام النشطة للمستخدم
-                        cursor.execute("DELETE FROM active_tasks WHERE user_id = ? AND status = \'running\'", (user_id,))
-                        # حذف أيضًا المهام التي تم إيقافها سابقًا
-                        cursor.execute("DELETE FROM active_tasks WHERE user_id = ? AND status = \'stopped\'", (user_id,))
-                        self.db.commit()
-                        self.logger.info(f"Deleted tasks for user {user_id} from database.")
-            except Exception as e:
-                self.logger.error(f"Error deleting tasks from database: {str(e)}") # Save changes after deletions
         self.logger.info(f"Stopped and deleted {deleted_tasks_count} tasks for user {user_id}")
         return deleted_tasks_count
 
@@ -585,14 +571,7 @@ class PostingService:
                             # Mark as failed first to ensure it's handled correctly by restart logic
                             task_data["status"] = "failed" 
                             task_data["last_activity"] = datetime.now()
-                            # التحقق من علامة المهام المستعادة لتجنب النشر المزدوج
-                            if task_data.get("restored"):
-                                self.logger.info(f"Watchdog: Skipping restart of restored task {task_id} to avoid duplicate publishing.")
-                                # إزالة علامة المهام المستعادة بعد أول فحص
-                                task_data.pop("restored", None)
-                                should_restart = False
-                            else:
-                                should_restart = True
+                            should_restart = True
                 
                 if should_restart and user_id:
                     try:

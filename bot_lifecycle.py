@@ -75,4 +75,4 @@ if __name__ == "__main__":
 """
 
 # لإيقاف البوت بشكل كامل، قم بتشغيل الأمر التالي:
-# python -c "from posting_persistence import mark_shutdown; mark_shutdown("normal")"
+# python -c "from posting_persistence import mark_shutdown; mark_shutdown()"
