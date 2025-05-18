@@ -186,6 +186,18 @@ class PostingService:
 
     def start_posting_task(self, user_id, post_id, message, group_ids, delay_seconds=None, exact_time=None, is_recurring=False):
         """Start a new posting task"""
+        # إضافة فحص للمهام النشطة للمستخدم لمنع النشر المزدوج
+        with self.tasks_lock:
+            # فحص المهام النشطة للمستخدم
+            for existing_task_id, existing_task in self.active_tasks.items():
+                if (existing_task.get("user_id") == user_id and 
+                    existing_task.get("status") == "running" and
+                    existing_task.get("message") == message and
+                    set(existing_task.get("group_ids", [])) == set(group_ids)):
+                    # وجدنا مهمة مطابقة بالفعل قيد التشغيل
+                    self.logger.warning(f"Duplicate posting task detected for user {user_id}. Existing task: {existing_task_id}")
+                    return existing_task_id, False
+        
         task_id = str(user_id) + "_" + str(time.time()) # Simple task ID
         start_time = datetime.now()
 
@@ -480,6 +492,70 @@ class PostingService:
         
         if deleted_tasks_count > 0:
             self.save_active_tasks() # Save changes after deletions
+            
+            # حذف بيانات المستخدم من قاعدة البيانات
+            try:
+                # حذف من قاعدة البيانات SQLite إذا كانت موجودة
+                db_path = os.path.join('data', 'telegram_bot.db')
+                if os.path.exists(db_path):
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    
+                    # حذف مهام النشر للمستخدم
+                    cursor.execute("DELETE FROM active_tasks WHERE user_id = ?", (user_id,))
+                    deleted_db_count = cursor.rowcount
+                    
+                    # حفظ التغييرات
+                    conn.commit()
+                    conn.close()
+                    
+                    self.logger.info(f"Deleted {deleted_db_count} tasks for user {user_id} from database")
+                
+                # حذف من ملفات JSON الاحتياطية
+                # 1. المسار القديم
+                old_backup_file = os.path.join('services', 'active_tasks.json')
+                if os.path.exists(old_backup_file):
+                    try:
+                        with open(old_backup_file, 'r') as f:
+                            tasks = json.load(f)
+                        
+                        # إنشاء نسخة جديدة بدون مهام المستخدم
+                        new_tasks = {}
+                        for task_id, task_data in tasks.items():
+                            if task_data.get('user_id') != user_id:
+                                new_tasks[task_id] = task_data
+                        
+                        # حفظ الملف المحدث
+                        with open(old_backup_file, 'w') as f:
+                            json.dump(new_tasks, f)
+                        
+                        self.logger.info(f"Removed user {user_id} tasks from old backup file")
+                    except Exception as e:
+                        self.logger.error(f"Error removing user from old backup file: {str(e)}")
+                
+                # 2. المسار الجديد
+                new_backup_file = os.path.join('data', 'active_posting.json')
+                if os.path.exists(new_backup_file):
+                    try:
+                        with open(new_backup_file, 'r') as f:
+                            tasks = json.load(f)
+                        
+                        # إنشاء نسخة جديدة بدون مهام المستخدم
+                        new_tasks = {}
+                        for task_id, task_data in tasks.items():
+                            if task_data.get('user_id') != user_id:
+                                new_tasks[task_id] = task_data
+                        
+                        # حفظ الملف المحدث
+                        with open(new_backup_file, 'w') as f:
+                            json.dump(new_tasks, f)
+                        
+                        self.logger.info(f"Removed user {user_id} tasks from new backup file")
+                    except Exception as e:
+                        self.logger.error(f"Error removing user from new backup file: {str(e)}")
+            except Exception as e:
+                self.logger.error(f"Error removing user {user_id} from database: {str(e)}")
+        
         self.logger.info(f"Stopped and deleted {deleted_tasks_count} tasks for user {user_id}")
         return deleted_tasks_count
 

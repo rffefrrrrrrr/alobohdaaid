@@ -98,7 +98,7 @@ class PostingPersistenceManager:
                 conn.commit()
                 conn.close()
             
-            # تنظيف ملف النسخ الاحتياطي
+            # تنظيف ملف النسخ الاحتياطي في المسار القديم
             backup_file = os.path.join('services', 'active_tasks.json')
             if os.path.exists(backup_file):
                 try:
@@ -110,7 +110,9 @@ class PostingPersistenceManager:
                     modified = False
                     for task_id, task_data in tasks.items():
                         if task_data.get('status') == 'running':
-                            task_data['status'] = 'stopped'
+                            # تعديل: تغيير الحالة إلى 'running' بدلاً من 'stopped' للسماح باستمرار النشر
+                            # task_data['status'] = 'stopped'
+                            task_data['status'] = 'running'
                             modified = True
                     
                     # حفظ الملف إذا تم تعديله
@@ -122,6 +124,31 @@ class PostingPersistenceManager:
                         logger.info(f"No running tasks found in backup file")
                 except Exception as e:
                     logger.error(f"Error updating backup file: {str(e)}")
+            
+            # تحديث ملف النسخ الاحتياطي في المسار الجديد (data/active_posting.json)
+            new_backup_file = os.path.join(self.data_dir, 'active_posting.json')
+            if os.path.exists(new_backup_file):
+                try:
+                    # تحميل الملف
+                    with open(new_backup_file, 'r') as f:
+                        tasks = json.load(f)
+                    
+                    # تحديث جميع المهام النشطة للسماح باستمرار النشر
+                    modified = False
+                    for task_id, task_data in tasks.items():
+                        if task_data.get('status') == 'running':
+                            # الحفاظ على حالة 'running' للسماح باستمرار النشر
+                            modified = True
+                    
+                    # حفظ الملف إذا تم تعديله
+                    if modified:
+                        with open(new_backup_file, 'w') as f:
+                            json.dump(tasks, f)
+                        logger.info(f"Updated tasks in new backup file to maintain running state")
+                    else:
+                        logger.info(f"No running tasks found in new backup file")
+                except Exception as e:
+                    logger.error(f"Error updating new backup file: {str(e)}")
             
             return True
         except Exception as e:
