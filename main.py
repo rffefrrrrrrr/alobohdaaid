@@ -1,3 +1,5 @@
+
+
 # Place your bot's code here (such as using Telethon, aiogram, etc.)
 
 # أضف هذا الكود في بداية الملف الرئيسي (bot.py أو main.py)
@@ -318,8 +320,7 @@ def main():
     # Use application.run_polling() directly, which handles the loop
     try:
         print("Starting bot polling...")
-        # إصلاح مشكلة النشر المزدوج: استخدام drop_pending_updates=True لمنع معالجة الرسائل القديمة مرتين
-        bot.run()  # استخدام الطريقة المعرفة في فئة Bot بدلاً من استدعاء run_polling مباشرة
+        bot.application.run_polling(drop_pending_updates=True)
     except Exception as e:
         logger.error(f"Error running bot polling: {e}", exc_info=True)
     finally:
@@ -335,3 +336,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

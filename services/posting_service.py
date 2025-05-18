@@ -566,8 +566,7 @@ class PostingService:
                         
                         self.logger.info(f"Watchdog: Successfully restarted task {task_id} for user {user_id}.")
                         tasks_restarted_count += 1
-   refresh
-except Exception as e_restart:
+                    except Exception as e_restart:
                         self.logger.error(f"Watchdog: Error restarting task {task_id} for user {user_id}: {e_restart}", exc_info=True)
                         # Keep status as failed if restart fails
                         task_data["status"] = "failed"

@@ -54,14 +54,6 @@ class PostingPersistenceManager:
             with open(self.restart_marker_file, 'w') as f:
                 f.write(f"Bot restart at {datetime.now().isoformat()}")
             
-            # إصلاح: حذف ملف علامة الإيقاف إذا كان موجوداً لضمان استعادة المهام
-            if os.path.exists(self.shutdown_marker_file):
-                try:
-                    os.remove(self.shutdown_marker_file)
-                    logger.info("Removed shutdown marker to ensure task restoration")
-                except Exception as e:
-                    logger.error(f"Error removing shutdown marker during restart: {str(e)}")
-            
             logger.info("Bot restart marked successfully")
             return True
         except Exception as e:
@@ -72,16 +64,6 @@ class PostingPersistenceManager:
         """
         تحديد ما إذا كان يجب استعادة مهام النشر عند بدء تشغيل البوت
         """
-        # إصلاح: التحقق من وجود ملف علامة إعادة التشغيل أولاً
-        if os.path.exists(self.restart_marker_file):
-            logger.info("Restart marker found, tasks will be restored")
-            # حذف ملف علامة إعادة التشغيل بعد التحقق منه
-            try:
-                os.remove(self.restart_marker_file)
-            except Exception as e:
-                logger.error(f"Error removing restart marker: {str(e)}")
-            return True
-        
         # إذا كان ملف علامة الإيقاف موجوداً، فلا يجب استعادة المهام
         if os.path.exists(self.shutdown_marker_file):
             logger.info("Shutdown marker found, tasks will not be restored")
@@ -92,8 +74,8 @@ class PostingPersistenceManager:
                 logger.error(f"Error removing shutdown marker: {str(e)}")
             return False
         
-        # إصلاح: إذا لم يكن أي من الملفين موجوداً، نفترض أنه إعادة تشغيل ويجب استعادة المهام
-        logger.info("No markers found, assuming restart and tasks will be restored")
+        # إذا لم يكن ملف علامة الإيقاف موجوداً، يجب استعادة المهام
+        logger.info("No shutdown marker found, tasks will be restored")
         return True
     
     def _stop_all_active_tasks(self):
@@ -140,32 +122,6 @@ class PostingPersistenceManager:
                         logger.info(f"No running tasks found in backup file")
                 except Exception as e:
                     logger.error(f"Error updating backup file: {str(e)}")
-            
-            # إصلاح: التحقق من ملف النسخ الاحتياطي الجديد في data/active_posting.json
-            new_backup_file = os.path.join(self.data_dir, 'active_posting.json')
-            if os.path.exists(new_backup_file):
-                try:
-                    # تحميل الملف
-                    with open(new_backup_file, 'r') as f:
-                        tasks = json.load(f)
-                    
-                    # تحديث جميع المهام النشطة إلى 'stopped' بدلاً من حذفها
-                    modified = False
-                    for task_id, task_data in tasks.items():
-                        if task_data.get('status') == 'running':
-                            # إصلاح: تغيير الحالة إلى 'paused' بدلاً من 'stopped' لتمييزها عن المهام المتوقفة يدوياً
-                            task_data['status'] = 'paused'
-                            modified = True
-                    
-                    # حفظ الملف إذا تم تعديله
-                    if modified:
-                        with open(new_backup_file, 'w') as f:
-                            json.dump(tasks, f, indent=4)
-                        logger.info(f"Updated tasks in new backup file")
-                    else:
-                        logger.info(f"No running tasks found in new backup file")
-                except Exception as e:
-                    logger.error(f"Error updating new backup file: {str(e)}")
             
             return True
         except Exception as e:
