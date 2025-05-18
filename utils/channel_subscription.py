@@ -163,7 +163,7 @@ class EnhancedChannelSubscription:
     async def check_user_subscription(self, user_id, bot):
         """التحقق من اشتراك المستخدم في القناة المطلوبة"""
         if not self.is_mandatory_subscription():
-            return True, "لا يوجد اشتراك إجباري مفعل"
+            return True
 
         try:
             # التحقق من اشتراك المستخدم في القناة
@@ -171,14 +171,11 @@ class EnhancedChannelSubscription:
             status = chat_member.status
             # المستخدم مشترك إذا كان عضواً أو مشرفاً أو مالكاً
             is_subscribed = status in ['member', 'administrator', 'creator']
-            if is_subscribed:
-                return is_subscribed, "المستخدم مشترك في القناة"
-            else:
-                return is_subscribed, f"المستخدم غير مشترك في القناة {self.required_channel}"
+            return is_subscribed
         except Exception as e:
             logger.error(f"خطأ أثناء التحقق من اشتراك المستخدم {user_id} في القناة {self.required_channel}. نوع الخطأ: {type(e).__name__}. الرسالة: {str(e)}", exc_info=True)
             # في حالة حدوث خطأ، نفترض أن المستخدم غير مشترك
-            return False, f"حدث خطأ أثناء التحقق: {str(e)}"
+            return False
 
     async def check_bot_is_admin(self, bot):
         """التحقق مما إذا كان البوت مشرفاً في القناة المطلوبة"""
@@ -243,7 +240,7 @@ class EnhancedChannelSubscription:
                 return
 
         # التحقق من اشتراك المستخدم
-        is_subscribed, error_message = await self.check_user_subscription(user_id, context.bot)
+        is_subscribed = await self.check_user_subscription(user_id, context.bot)
         if not is_subscribed:
             # إرسال رسالة الاشتراك الإجباري
             channel = self.get_required_channel()
@@ -310,7 +307,7 @@ def auto_channel_subscription_required(func):
 
         # التحقق من اشتراك المستخدم
         if subscription_manager.is_mandatory_subscription():
-            is_subscribed, error_message = await subscription_manager.check_user_subscription(user_id, context.bot)
+            is_subscribed = await subscription_manager.check_user_subscription(user_id, context.bot)
             if not is_subscribed:
                 channel = subscription_manager.get_required_channel()
                 logger.info(f"Decorator check: User {user_id} not subscribed. Required channel: {channel}") # Added logging
@@ -328,37 +325,20 @@ def auto_channel_subscription_required(func):
                     )
                 else:
                      logger.warning(f"Decorator check: User {user_id} not subscribed, but no required channel is set. Cannot prompt.")
-                     # يمكنك إضاف
-                return # Don't proceed with the handler
-        
-        # إذا وصلنا إلى هنا، فإما أن الاشتراك غير إجباري أو المستخدم مشترك بالفعل
+                     # يمكنك إضافة رسالة عامة هنا إذا أردت
+                     # await update.effective_message.reply_text("⚠️ يتطلب استخدام هذا الأمر الاشتراك في القناة الإجبارية، ولكن لم يتم تعيين قناة حالياً.")
+
+                return None # Stop processing the command
+
         return await func(self, update, context, *args, **kwargs)
-    
     return wrapped
 
-# إضافة الدالة المفقودة setup_enhanced_subscription
-def setup_enhanced_subscription(application, channel=None, duration_days=None):
-    """
-    إعداد نظام الاشتراك الإجباري المحسن
-    
-    Args:
-        application: تطبيق التيليجرام
-        channel: اسم القناة المطلوبة للاشتراك (اختياري)
-        duration_days: مدة الاشتراك الإجباري بالأيام (اختياري)
-    """
-    logger.info("بدء إعداد نظام الاشتراك الإجباري المحسن")
-    
-    # تعيين القناة المطلوبة إذا تم تحديدها
-    if channel:
-        subscription_manager.set_required_channel(channel, duration_days)
-        logger.info(f"تم تعيين القناة المطلوبة للاشتراك الإجباري: {channel}")
-    
-    # تفعيل وسيط التحقق من الاشتراك لجميع الرسائل ما عدا أمر /subscription
-    subscription_manager.middleware_handler = MessageHandler(
-        filters.ALL & ~filters.UpdateType.EDITED & filters.ChatType.PRIVATE & ~filters.Command(['subscription', 'sub']),
-        subscription_manager.subscription_middleware
+def setup_enhanced_subscription(application):
+    """إعداد وسيط التحقق من الاشتراك"""
+    # إضافة وسيط للتحقق من الاشتراك لجميع الرسائل
+    application.add_handler(
+        MessageHandler(filters.ALL, subscription_manager.subscription_middleware),
+        group=-1  # أولوية عالية لضمان تنفيذ الوسيط قبل معالجة الرسائل
     )
-    application.add_handler(subscription_manager.middleware_handler, group=-1)  # أولوية عالية
-    
-    logger.info("تم إعداد نظام الاشتراك الإجباري المحسن بنجاح")
+
     return subscription_manager

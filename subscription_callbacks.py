@@ -8,13 +8,6 @@ logger = logging.getLogger(__name__)
 
 async def subscription_check_callback(update: Update, context: CallbackContext):
     """Handle callback when user clicks 'Check Subscription' button"""
-    # --- BEGIN FIX ---
-    # Check if update is an Update object
-    if not isinstance(update, Update):
-        logger.error(f"In subscription_check_callback: Expected 'update' to be of type Update, but got {type(update)}. Value: {str(update)[:200]}")
-        return
-    # --- END FIX ---
-    
     query = update.callback_query
     user_id = update.effective_user.id
 
@@ -22,14 +15,12 @@ async def subscription_check_callback(update: Update, context: CallbackContext):
     await query.answer()
 
     # Get the channel subscription instance
-    from utils.channel_subscription import enhanced_channel_subscription
+    from utils.channel_subscription_fix import enhanced_channel_subscription
 
     # Check if user is subscribed to the channel
-    is_subscribed, error_message = await enhanced_channel_subscription.check_user_subscription(user_id, context.bot)
-    
-    # Get the required channel
-    required_channel = enhanced_channel_subscription.get_required_channel()
-    
+    is_subscribed, required_channel = await enhanced_channel_subscription.check_user_subscription(
+        context.bot, user_id
+    )
     if is_subscribed:
         # User is subscribed, show success message
         # Check if required_channel is available before using it

@@ -9,7 +9,7 @@ load_dotenv()
 
 # تعيين المتغيرات مباشرة إذا لم يتم العثور عليها في ملف .env
 # رمز البوت - يستخدم في bot.py كـ TELEGRAM_BOT_TOKEN
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7820951703:AAG1z32k_LS0cQh3H8nzhQGNj6BS7IWRPA8")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7820951703:AAG8cWmweVQPs8Zylwf1Du-YJBS3qtI1VvQ")
 
 # معرف المستخدم المسؤول
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "6459577996"))

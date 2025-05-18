@@ -10,14 +10,7 @@ logger = logging.getLogger(__name__)
 def restricted(func):
     """Decorator to restrict command access to registered users"""
     @wraps(func)
-    async def wrapped(self, update, context: CallbackContext, *args, **kwargs):
-        # --- BEGIN FIX ---
-        # Check if update is an Update object
-        if not isinstance(update, Update):
-            logger.error(f"In restricted decorator: Expected 'update' to be of type Update, but got {type(update)}. Value: {str(update)[:200]}")
-            return None
-        # --- END FIX ---
-        
+    async def wrapped(self, update: Update, context: CallbackContext, *args, **kwargs):
         user_id = update.effective_user.id
 
         # Allow all users to access the command
@@ -27,22 +20,7 @@ def restricted(func):
 def admin_required(func):
     """Decorator to restrict command access to admin users only"""
     @wraps(func)
-    async def wrapped(self, update, context: CallbackContext, *args, **kwargs):
-        # --- BEGIN FIX ---
-        # Check if update is an Update object
-        if not isinstance(update, Update):
-            logger.error(f"In admin_required decorator: Expected 'update' to be of type Update, but got {type(update)}. Value: {str(update)[:200]}")
-            if isinstance(update, int) and context and hasattr(context, 'bot'):
-                try:
-                    await context.bot.send_message(
-                        chat_id=update,
-                        text="حدث خطأ أثناء تنفيذ الأمر. يرجى المحاولة مرة أخرى لاحقًا."
-                    )
-                except Exception as e_send:
-                    logger.error(f"Failed to send error message to user {update} in admin_required: {e_send}")
-            return None
-        # --- END FIX ---
-        
+    async def wrapped(self, update: Update, context: CallbackContext, *args, **kwargs):
         user_id = update.effective_user.id
 
         # Get user from subscription service
@@ -65,22 +43,7 @@ def admin_only(func):
 def subscription_required(func):
     """Decorator to restrict command access to users with active subscription"""
     @wraps(func)
-    async def wrapped(self, update, context: CallbackContext, *args, **kwargs):
-        # --- BEGIN FIX ---
-        # Check if update is an Update object
-        if not isinstance(update, Update):
-            logger.error(f"In subscription_required decorator: Expected 'update' to be of type Update, but got {type(update)}. Value: {str(update)[:200]}")
-            if isinstance(update, int) and context and hasattr(context, 'bot'):
-                try:
-                    await context.bot.send_message(
-                        chat_id=update,
-                        text="حدث خطأ أثناء التحقق من حالة اشتراكك. يرجى استخدام الأمر /subscription مباشرة."
-                    )
-                except Exception as e_send:
-                    logger.error(f"Failed to send error message to user {update} in subscription_required: {e_send}")
-            return None
-        # --- END FIX ---
-        
+    async def wrapped(self, update: Update, context: CallbackContext, *args, **kwargs):
         user_id = update.effective_user.id
 
         # Get user from subscription service
@@ -97,7 +60,7 @@ def subscription_required(func):
         # Check if user has active subscription or is admin
         if user and (user.has_active_subscription() or user.is_admin):
             # Check channel subscription automatically - FIX: Use subscription_manager instead of channel_subscription
-            is_subscribed, error_message = await subscription_manager.check_user_subscription(user_id, context.bot)
+            is_subscribed = await subscription_manager.check_user_subscription(user_id, context.bot)
             required_channel = subscription_manager.get_required_channel()
 
             # If user is admin, bypass channel subscription check
