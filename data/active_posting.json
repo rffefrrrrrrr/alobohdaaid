@@ -9,9 +9,9 @@
         ],
         "delay_seconds": 500,
         "exact_time": null,
-        "status": "failed",
-        "start_time": "2025-05-18T19:58:21.453102",
-        "last_activity": "2025-05-18T20:01:13.062956",
+        "status": "running",
+        "start_time": "2025-05-18T19:58:21.447128",
+        "last_activity": "2025-05-18T20:02:11.663391",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -27,8 +27,8 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T19:58:21.455516",
-        "last_activity": "2025-05-18T19:58:21.455518",
+        "start_time": "2025-05-18T20:03:21.582344",
+        "last_activity": "2025-05-18T20:03:21.582346",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -44,27 +44,9 @@
         "delay_seconds": 400,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T19:58:21.577037",
-        "last_activity": "2025-05-18T19:58:21.899336",
+        "start_time": "2025-05-18T19:58:21.553130",
+        "last_activity": "2025-05-18T19:58:21.815781",
         "message_count": 0,
-        "message_id": null,
-        "is_recurring": true
-    },
-    "6459577996_1747564912.1704545": {
-        "user_id": 6459577996,
-        "post_id": "1747564912.170437",
-        "message": "او اس ان (باركود) بـ 6 ريال ✅\nأمازون برايم فيديو شهر بـ 3.5 ريال ✅\nنتفليكس شاشة واحدة أسبوعين+ بـ 2 ريال ✅\nشاهد VIP رياضية 3 شهور بـ 15 ريال (متبقي اشتراك واحد) ⚠️\nقروبات تيليجرام 2021 – أكثر من قروب متاح ✅\nأتعامل فقط مع البنوك السعودية – الصامل يتفضل.\n\nتواصلو مع\n\n@ srouin",
-        "group_ids": [
-            "-1001599134989",
-            "-1001894777304",
-            "-1001699992849"
-        ],
-        "delay_seconds": 300,
-        "exact_time": null,
-        "status": "running",
-        "start_time": "2025-05-18T19:58:21.583745",
-        "last_activity": "2025-05-18T19:58:25.747664",
-        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     },
@@ -80,9 +62,9 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T19:58:21.593006",
-        "last_activity": "2025-05-18T20:00:04.233312",
-        "message_count": 0,
+        "start_time": "2025-05-18T20:03:21.582682",
+        "last_activity": "2025-05-18T20:04:24.494457",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     },
@@ -96,9 +78,25 @@
         "delay_seconds": 30,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T19:58:21.647560",
-        "last_activity": "2025-05-18T20:00:54.649886",
+        "start_time": "2025-05-18T19:58:21.575540",
+        "last_activity": "2025-05-18T20:06:27.121265",
         "message_count": 4,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7207131508_1747599009.8052685": {
+        "user_id": 7207131508,
+        "post_id": "1747599009.8052523",
+        "message": "متوفر نتفلكس في بي ان",
+        "group_ids": [
+            "-1001599134989"
+        ],
+        "delay_seconds": 40,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-18T20:10:09.805271",
+        "last_activity": "2025-05-18T20:10:09.805271",
+        "message_count": 0,
         "message_id": null,
         "is_recurring": true
     }
