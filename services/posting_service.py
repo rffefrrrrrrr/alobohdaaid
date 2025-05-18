@@ -307,6 +307,8 @@ class PostingService:
                     if stop_event and stop_event.is_set():
                         self.logger.info(f"Task {task_id} received stop signal before starting processing cycle.")
                         break # Exit while True
+                        self.logger.info(f"Task {task_id} stop signal detected and processed. Exiting task thread.")
+                        return # Exit the entire task function immediately
 
                     message_text = task_data_current_cycle["message"]
                     group_ids = task_data_current_cycle["group_ids"]
@@ -422,6 +424,17 @@ class PostingService:
                     del self.task_threads[task_id]
                 
                 self.save_active_tasks() # Save state without the deleted task
+                # حذف المهمة من قاعدة البيانات
+                try:
+                    # حذف المهمة من جدول active_tasks في قاعدة البيانات
+                    if hasattr(self, "db") and self.db:
+                        cursor = self.db.get_cursor()
+                        if cursor:
+                            cursor.execute("DELETE FROM active_tasks WHERE task_id = ?", (task_id,))
+                            self.db.commit()
+                            self.logger.info(f"Deleted task {task_id} from database.")
+                except Exception as e:
+                    self.logger.error(f"Error deleting task from database: {str(e)}") # Save state without the deleted task
                 self.logger.info(f"Task {task_id} stopped and deleted.")
                 return True, "Task stopped and deleted successfully."
             elif task_id in self.active_tasks:
@@ -481,7 +494,31 @@ class PostingService:
                 deleted_tasks_count += 1
         
         if deleted_tasks_count > 0:
+        # انتظار للتأكد من توقف جميع الخيوط
+        for task_id in tasks_to_delete_ids:
+            if task_id in self.task_threads and self.task_threads[task_id].is_alive():
+                try:
+                    # انتظار لمدة قصيرة للتأكد من توقف الخيط
+                    self.task_threads[task_id].join(timeout=2.0)
+                    self.logger.info(f"Thread for task {task_id} joined successfully.")
+                except Exception as e:
+                    self.logger.error(f"Error joining thread for task {task_id}: {str(e)}")
+
             self.save_active_tasks() # Save changes after deletions
+            # حذف المهام من قاعدة البيانات
+            try:
+                # حذف المهام من جدول active_tasks في قاعدة البيانات
+                if hasattr(self, "db") and self.db:
+                    cursor = self.db.get_cursor()
+                    if cursor:
+                        # حذف المهام النشطة للمستخدم
+                        cursor.execute("DELETE FROM active_tasks WHERE user_id = ? AND status = \'running\'", (user_id,))
+                        # حذف أيضًا المهام التي تم إيقافها سابقًا
+                        cursor.execute("DELETE FROM active_tasks WHERE user_id = ? AND status = \'stopped\'", (user_id,))
+                        self.db.commit()
+                        self.logger.info(f"Deleted tasks for user {user_id} from database.")
+            except Exception as e:
+                self.logger.error(f"Error deleting tasks from database: {str(e)}") # Save changes after deletions
         self.logger.info(f"Stopped and deleted {deleted_tasks_count} tasks for user {user_id}")
         return deleted_tasks_count
 
