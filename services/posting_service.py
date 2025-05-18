@@ -109,8 +109,8 @@ class PostingService:
                 restored_count = 0
                 if loaded_tasks_from_json and isinstance(loaded_tasks_from_json, dict):
                     for task_id, task_doc in loaded_tasks_from_json.items():
-                        # إصلاح: استعادة المهام ذات الحالة "running" أو "paused"
-                        if task_doc.get("status") in ["running", "paused"]: 
+                        # Only restore tasks that were running or explicitly marked for restore
+                        if task_doc.get("status") == "running": 
                             try:
                                 # Convert timestamps from string if necessary
                                 start_time_str = task_doc.get("start_time")
@@ -131,22 +131,11 @@ class PostingService:
                                 if not isinstance(task_doc.get("group_ids"), list):
                                     task_doc["group_ids"] = []
 
-                                # إصلاح: تغيير حالة المهام من "paused" إلى "running" عند الاستعادة
-                                if task_doc.get("status") == "paused":
-                                    task_doc["status"] = "running"
-                                    self.logger.info(f"Changed task {task_id} status from 'paused' to 'running' during restore.")
-
                                 with self.tasks_lock:
                                     self.active_tasks[task_id] = task_doc
                                     self.task_events[task_id] = threading.Event()
                                 
-                                # إصلاح: بدء تنفيذ المهام المستعادة في خيوط جديدة
-                                user_id = task_doc.get("user_id")
-                                thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
-                                self.task_threads[task_id] = thread
-                                thread.start()
-                                
-                                self.logger.info(f"Restored and started task {task_id} (Recurring: {task_doc.get('is_recurring', False)}) from JSON.")
+                                self.logger.info(f"Restored task {task_id} (Recurring: {task_doc.get('is_recurring', False)}) from JSON.")
                                 restored_count += 1
                             except Exception as e_task:
                                 self.logger.error(f"Error processing restored task {task_id} from JSON: {e_task}")
@@ -167,9 +156,9 @@ class PostingService:
         with self.tasks_lock:
             self.logger.debug(f"[save_active_tasks] Acquiring lock. Current tasks in memory: {len(self.active_tasks)}")
             for task_id, task_data in self.active_tasks.items():
-                # Save tasks that are running, paused, stopped, or failed (to allow restart)
-                # Completed tasks are typically not saved for re-execution unless specific logic requires it.
-                if task_data.get("status") in ["running", "paused", "stopped", "failed"]:
+                # Save tasks that are running or stopped (to allow restart)
+                # Completed or failed tasks are typically not saved for re-execution unless specific logic requires it.
+                if task_data.get("status") in ["running", "stopped", "failed"]:
                     task_copy = task_data.copy()
                     # Ensure datetime objects are converted to ISO format strings for JSON serialization
                     if isinstance(task_copy.get("start_time"), datetime):
@@ -309,270 +298,352 @@ class PostingService:
                     task_data_current_cycle = None
                     with self.tasks_lock:
                         if task_id not in self.active_tasks or self.active_tasks[task_id]["status"] != "running":
-                            self.logger.info(f"Task {task_id} is no longer running. Exiting task thread.")
-                            break # Exit the loop, finally will execute
-                        task_data_current_cycle = self.active_tasks[task_id].copy() # Make a copy to avoid lock contention
+                            self.logger.info(f"Task {task_id} no longer running or not found, exiting thread's while loop.")
+                            break # Exit while True
+                        task_data_current_cycle = self.active_tasks[task_id].copy()
 
-                    # Check if we need to wait for a specific time or delay
-                    if first_cycle:
-                        first_cycle = False
-                        exact_time_str = task_data_current_cycle.get("exact_time")
-                        delay_seconds = task_data_current_cycle.get("delay_seconds")
+                    if stop_event and stop_event.is_set():
+                        self.logger.info(f"Task {task_id} received stop signal before starting processing cycle.")
+                        break # Exit while True
 
-                        if exact_time_str:
-                            try:
-                                exact_time = datetime.fromisoformat(exact_time_str)
-                                now = datetime.now()
-                                if exact_time > now:
-                                    wait_seconds = (exact_time - now).total_seconds()
-                                    self.logger.info(f"Task {task_id} will wait until {exact_time_str} ({wait_seconds:.1f} seconds)")
-                                    # Wait until the exact time or until the task is stopped
-                                    if stop_event and await self._async_wait(stop_event, wait_seconds):
-                                        self.logger.info(f"Task {task_id} was stopped while waiting for exact time.")
-                                        break # Exit the loop, finally will execute
-                            except (ValueError, TypeError) as e:
-                                self.logger.error(f"Error parsing exact_time for task {task_id}: {e}")
-                        elif delay_seconds:
-                            self.logger.info(f"Task {task_id} will wait for {delay_seconds} seconds")
-                            # Wait for the specified delay or until the task is stopped
-                            if stop_event and await self._async_wait(stop_event, delay_seconds):
-                                self.logger.info(f"Task {task_id} was stopped while waiting for delay.")
-                                break # Exit the loop, finally will execute
-
-                    # Get the message and group IDs for this cycle
-                    message = task_data_current_cycle.get("message", "")
-                    group_ids = task_data_current_cycle.get("group_ids", [])
+                    message_text = task_data_current_cycle["message"]
+                    group_ids = task_data_current_cycle["group_ids"]
+                    is_recurring_task = task_data_current_cycle.get("is_recurring", False)
                     
-                    if not message or not group_ids:
-                        self.logger.error(f"Task {task_id} has invalid message or group_ids. Exiting task thread.")
+                    if first_cycle and task_data_current_cycle.get("exact_time"):
+                        exact_time_dt = datetime.fromisoformat(task_data_current_cycle["exact_time"])
+                        now = datetime.now()
+                        if now < exact_time_dt:
+                            wait_seconds = (exact_time_dt - now).total_seconds()
+                            self.logger.info(f"Task {task_id} (first cycle) waiting for exact time {task_data_current_cycle['exact_time']} (approx {wait_seconds}s)")
+                            if stop_event and stop_event.wait(timeout=wait_seconds):
+                                self.logger.info(f"Task {task_id} received stop signal while waiting for initial exact time.")
+                                break
+                    
+                    self.logger.info(f"Starting cycle for task {task_id}: User {task_data_current_cycle['user_id']}, Groups {len(group_ids)}")
+                    
+                    cycle_messages_sent = 0
+                    inter_group_delay = 1
+
+                    for i, group_id_str in enumerate(group_ids):
+                        current_status_check = ""
+                        with self.tasks_lock:
+                            if task_id not in self.active_tasks or self.active_tasks[task_id]["status"] != "running":
+                                current_status_check = self.active_tasks.get(task_id, {}).get("status", "NOT_FOUND")
+                                self.logger.info(f"Task {task_id} stopped (status: {current_status_check}) or removed during group iteration.")
+                                break
+                            if stop_event and stop_event.is_set():
+                                self.logger.info(f"Task {task_id} received stop signal during group iteration.")
+                                break
+                        
+                        self.logger.info(f"Task {task_id} sending to group {i+1}/{len(group_ids)}: {group_id_str}")
+                        success, error_type = await self._send_message_to_group(client, group_id_str, message_text)
+                        
+                        if success:
+                            cycle_messages_sent += 1
+                        
                         with self.tasks_lock:
                             if task_id in self.active_tasks:
-                                self.active_tasks[task_id]["status"] = "failed"
                                 self.active_tasks[task_id]["last_activity"] = datetime.now()
-                        break # Exit the loop, finally will execute
 
-                    # Send the message to each group
-                    success_count = 0
-                    error_count = 0
-                    for group_id in group_ids:
-                        # Check if the task has been stopped
-                        if stop_event and stop_event.is_set():
-                            self.logger.info(f"Task {task_id} was stopped during execution.")
-                            break # Exit the group loop, but continue to update task status
-                        
-                        # Send the message to this group
-                        success, error_type = await self._send_message_to_group(client, group_id, message)
-                        if success:
-                            success_count += 1
-                        else:
-                            error_count += 1
-                        
-                        # Small delay between messages to avoid rate limiting
-                        await asyncio.sleep(0.5)
+                        if i < len(group_ids) - 1 and inter_group_delay > 0:
+                            if stop_event and stop_event.wait(timeout=inter_group_delay):
+                                self.logger.info(f"Task {task_id} received stop signal during inter-group delay.")
+                                break
+                    
+                    if (stop_event and stop_event.is_set()) or (task_id in self.active_tasks and self.active_tasks[task_id]["status"] != "running"):
+                         self.logger.info(f"Task {task_id} stop signal processed or status changed after group iteration completion or break.")
+                         break
 
-                    # Update task status
                     with self.tasks_lock:
                         if task_id in self.active_tasks:
+                            self.active_tasks[task_id]["message_count"] = self.active_tasks[task_id].get("message_count", 0) + cycle_messages_sent
                             self.active_tasks[task_id]["last_activity"] = datetime.now()
-                            self.active_tasks[task_id]["message_count"] = self.active_tasks[task_id].get("message_count", 0) + success_count
                             
-                            # If this is not a recurring task, mark it as completed
-                            if not task_data_current_cycle.get("is_recurring", False):
-                                if error_count > 0 and success_count == 0:
-                                    self.active_tasks[task_id]["status"] = "failed"
-                                else:
-                                    self.active_tasks[task_id]["status"] = "completed"
-                                self.logger.info(f"Task {task_id} completed with {success_count} successes and {error_count} errors.")
-                                break # Exit the loop, finally will execute
-                            else:
-                                # For recurring tasks, wait for the next cycle
-                                self.logger.info(f"Recurring task {task_id} completed cycle with {success_count} successes and {error_count} errors.")
-                                # Wait for the recurring interval (e.g., 24 hours)
-                                recurring_interval = task_data_current_cycle.get("recurring_interval", 86400) # Default to 24 hours
-                                if stop_event and await self._async_wait(stop_event, recurring_interval):
-                                    self.logger.info(f"Recurring task {task_id} was stopped while waiting for next cycle.")
-                                    break # Exit the loop, finally will execute
+                            if not is_recurring_task and self.active_tasks[task_id]["status"] == "running":
+                                self.logger.info(f"Task {task_id} (non-recurring) completed. Setting status to 'completed'.")
+                                self.active_tasks[task_id]["status"] = "completed"
                     
-                    # Save task state after each cycle
-                    self.save_active_tasks()
+                    first_cycle = False
+
+                    if not is_recurring_task:
+                        self.logger.info(f"Task {task_id} is not recurring. Exiting task thread's while loop.")
+                        break
+
+                    recurring_interval_seconds = task_data_current_cycle.get("delay_seconds")
+                    if recurring_interval_seconds is None or recurring_interval_seconds <= 0:
+                        recurring_interval_seconds = 60
+                        self.logger.warning(f"Recurring task {task_id} has no/invalid delay_seconds for cycle interval, defaulting to {recurring_interval_seconds}s.")
+
+                    self.logger.info(f"Recurring task {task_id} finished cycle. Waiting {recurring_interval_seconds}s for next cycle.")
+                    if stop_event and stop_event.wait(timeout=recurring_interval_seconds):
+                        self.logger.info(f"Recurring task {task_id} received stop signal during recurring interval.")
+                        break
+
             except Exception as e:
-                self.logger.error(f"Error in task {task_id}: {str(e)}", exc_info=True)
+                self.logger.error(f"Error in task {task_id} execution: {e}", exc_info=True)
                 with self.tasks_lock:
                     if task_id in self.active_tasks:
                         self.active_tasks[task_id]["status"] = "failed"
                         self.active_tasks[task_id]["last_activity"] = datetime.now()
             finally:
-                # Clean up
-                try:
+                if client.is_connected():
                     await client.disconnect()
-                except:
-                    pass
-                
-                # Final save of task state
+                self.logger.info(f"Disconnected client for task {task_id}")
+                # Save final state
                 self.save_active_tasks()
-
-        # Run the coroutine in the event loop
-        try:
-            loop.run_until_complete(task_coroutine())
-        except Exception as e:
-            self.logger.error(f"Error in task loop for {task_id}: {str(e)}", exc_info=True)
-        finally:
-            # Clean up the event loop
-            try:
-                loop.close()
-            except:
-                pass
-            
-            # Remove the task from the active threads
-            if task_id in self.task_threads:
-                del self.task_threads[task_id]
-
-    async def _async_wait(self, event, timeout):
-        """Wait for an event with timeout in an async context"""
-        try:
-            # Convert the threading.Event to an asyncio.Event-like wait
-            for _ in range(int(timeout * 2)):  # Check twice per second
-                if event.is_set():
-                    return True
-                await asyncio.sleep(0.5)
-            return False
-        except Exception as e:
-            self.logger.error(f"Error in async_wait: {str(e)}")
-            return False
+                # Clean up thread reference
+                with self.tasks_lock:
+                    if task_id in self.task_threads:
+                        del self.task_threads[task_id]
+                    if task_id in self.task_events:
+                        del self.task_events[task_id]
+        
+        loop.run_until_complete(task_coroutine())
 
     def stop_posting_task(self, task_id):
-        """Stop a posting task"""
+        """Stop and delete a running posting task"""
         with self.tasks_lock:
-            if task_id not in self.active_tasks:
-                return False, "Task not found"
-            
-            if self.active_tasks[task_id]["status"] != "running":
-                return False, f"Task is not running (status: {self.active_tasks[task_id]['status']})"
-            
-            # Set the status to stopped
-            self.active_tasks[task_id]["status"] = "stopped"
-            self.active_tasks[task_id]["last_activity"] = datetime.now()
-            
-            # Set the stop event to signal the task thread to exit
-            if task_id in self.task_events:
-                self.task_events[task_id].set()
-        
-        # Save the updated task state
-        self.save_active_tasks()
-        
-        self.logger.info(f"Stopped posting task {task_id}")
-        return True, "Task stopped successfully"
+            if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
+                self.logger.info(f"Attempting to stop and delete task {task_id}")
+                # Signal the thread to stop
+                if task_id in self.task_events:
+                    self.task_events[task_id].set()
+                
+                # Remove the task from active_tasks
+                del self.active_tasks[task_id]
+                
+                # Clean up associated event and thread objects
+                if task_id in self.task_events: # Check again as it might have been cleaned by the thread itself
+                    del self.task_events[task_id]
+                if task_id in self.task_threads: # Check again
+                    del self.task_threads[task_id]
+                
+                self.save_active_tasks() # Save state without the deleted task
+                self.logger.info(f"Task {task_id} stopped and deleted.")
+                return True, "Task stopped and deleted successfully."
+            elif task_id in self.active_tasks:
+                return False, f"Task {task_id} is not currently running (status: {self.active_tasks[task_id].get('status')}). Cannot stop and delete."
+            else:
+                return False, f"Task {task_id} not found."
 
     def get_task_status(self, task_id):
-        """Get the status of a posting task"""
+        """Get the status of a specific task"""
         with self.tasks_lock:
-            if task_id not in self.active_tasks:
-                return None
-            
-            task_data = self.active_tasks[task_id].copy()
-        
-        # Convert datetime objects to strings for serialization
-        if isinstance(task_data.get("start_time"), datetime):
-            task_data["start_time"] = task_data["start_time"].isoformat()
-        if isinstance(task_data.get("last_activity"), datetime):
-            task_data["last_activity"] = task_data["last_activity"].isoformat()
-        
-        return task_data
+            if task_id in self.active_tasks:
+                return self.active_tasks[task_id]
+            return None
 
-    def get_user_tasks(self, user_id):
-        """Get all tasks for a user"""
-        user_tasks = {}
+    def get_all_tasks_status(self, user_id=None):
+        """Get status of all tasks, optionally filtered by user_id"""
+        tasks_status = []
         with self.tasks_lock:
             for task_id, task_data in self.active_tasks.items():
-                if task_data.get("user_id") == user_id:
-                    task_copy = task_data.copy()
-                    
-                    # Convert datetime objects to strings for serialization
-                    if isinstance(task_copy.get("start_time"), datetime):
-                        task_copy["start_time"] = task_copy["start_time"].isoformat()
-                    if isinstance(task_copy.get("last_activity"), datetime):
-                        task_copy["last_activity"] = task_copy["last_activity"].isoformat()
-                    
-                    user_tasks[task_id] = task_copy
+                if user_id is None or task_data.get("user_id") == user_id:
+                    # Create a copy and convert datetimes to strings for display/API response
+                    task_display = task_data.copy()
+                    if isinstance(task_display.get("start_time"), datetime):
+                        task_display["start_time"] = task_display["start_time"].isoformat()
+                    if isinstance(task_display.get("last_activity"), datetime):
+                        task_display["last_activity"] = task_display["last_activity"].isoformat()
+                    task_display["task_id"] = task_id # Ensure task_id is part of the returned dict
+                    tasks_status.append(task_display)
+        return tasks_status
+
+    def stop_all_user_tasks(self, user_id):
+        """Stop and delete all running tasks for a specific user"""
+        deleted_tasks_count = 0
+        with self.tasks_lock:
+            tasks_to_delete_ids = []
+            # Collect task_ids to stop and delete
+            for task_id, task_data in list(self.active_tasks.items()): # Iterate over a copy for safe deletion
+                if task_data.get("user_id") == user_id and task_data.get("status") == "running":
+                    tasks_to_delete_ids.append(task_id)
+            
+            for task_id in tasks_to_delete_ids:
+                self.logger.info(f"Stopping and deleting task {task_id} for user {user_id}")
+                # Signal the thread to stop
+                if task_id in self.task_events:
+                    self.task_events[task_id].set() # Signal the thread to stop
+                
+                # Remove the task from active_tasks
+                if task_id in self.active_tasks: # Check if still exists
+                    del self.active_tasks[task_id]
+                
+                # Clean up associated event and thread objects
+                if task_id in self.task_events: # Check again as it might have been cleaned by the thread itself
+                    del self.task_events[task_id]
+                if task_id in self.task_threads: # Check again
+                    del self.task_threads[task_id]
+                
+                deleted_tasks_count += 1
         
-        return user_tasks
+        if deleted_tasks_count > 0:
+            self.save_active_tasks() # Save changes after deletions
+        self.logger.info(f"Stopped and deleted {deleted_tasks_count} tasks for user {user_id}")
+        return deleted_tasks_count
+
+    def delete_task_history(self, user_id, task_id=None):
+        """Delete task history for a user, or a specific task"""
+        deleted_count = 0
+        with self.tasks_lock:
+            tasks_to_delete_ids = []
+            if task_id:
+                if task_id in self.active_tasks and self.active_tasks[task_id].get("user_id") == user_id:
+                    # Only delete if not running
+                    if self.active_tasks[task_id].get("status") != "running":
+                        tasks_to_delete_ids.append(task_id)
+                    else:
+                        self.logger.warning(f"Attempted to delete running task {task_id}. Stop it first.")
+                        return 0, "Cannot delete a running task. Stop it first."
+                else:
+                    return 0, "Task not found or does not belong to user."
+            else: # Delete all non-running tasks for the user
+                for tid, tdata in list(self.active_tasks.items()): # Iterate over a copy
+                    if tdata.get("user_id") == user_id and tdata.get("status") != "running":
+                        tasks_to_delete_ids.append(tid)
+            
+            for tid_to_delete in tasks_to_delete_ids:
+                if tid_to_delete in self.active_tasks:
+                    del self.active_tasks[tid_to_delete]
+                    if tid_to_delete in self.task_events: del self.task_events[tid_to_delete]
+                    if tid_to_delete in self.task_threads: del self.task_threads[tid_to_delete]
+                    deleted_count += 1
+
+        if deleted_count > 0:
+            self.save_active_tasks() # Save changes after deletion
+            self.logger.info(f"Deleted {deleted_count} tasks for user {user_id}.")
+            return deleted_count, "Tasks deleted successfully."
+        elif task_id and not tasks_to_delete_ids: # Specific task was requested but not deleted (e.g. running)
+             return 0, "Task not deleted (it might be running or not found)."
+        return 0, "No tasks found to delete or matching criteria."
+
+    def check_and_restart_failed_tasks(self):
+        """Periodically checks for failed or stopped recurring tasks and attempts to restart them."""
+        self.logger.info("Watchdog: Checking for failed or stopped recurring tasks to restart...")
+        tasks_restarted_count = 0
+        with self.tasks_lock:
+            # Iterate over a copy of task_ids to allow modification of self.active_tasks
+            for task_id in list(self.active_tasks.keys()):
+                task_data = self.active_tasks.get(task_id)
+                if not task_data:
+                    continue
+
+                is_recurring = task_data.get("is_recurring", False)
+                current_status = task_data.get("status")
+                user_id = task_data.get("user_id")
+
+                # Check if the task is recurring and has failed, or if it was running but its thread is no longer alive
+                should_restart = False
+                if is_recurring:
+                    if current_status == "failed":
+                        self.logger.warning(f"Watchdog: Found failed recurring task {task_id} for user {user_id}. Attempting restart.")
+                        should_restart = True
+                    elif current_status == "running": # Check if a supposedly running task's thread is dead
+                        thread = self.task_threads.get(task_id)
+                        if not thread or not thread.is_alive():
+                            self.logger.warning(f"Watchdog: Found recurring task {task_id} (status: running) for user {user_id} with a dead or missing thread. Attempting restart.")
+                            # Mark as failed first to ensure it's handled correctly by restart logic
+                            task_data["status"] = "failed" 
+                            task_data["last_activity"] = datetime.now()
+                            should_restart = True
+                
+                if should_restart and user_id:
+                    try:
+                        # Reset task status and metadata for restart
+                        task_data["status"] = "running"
+                        task_data["start_time"] = datetime.now() # Reset start time for the new run
+                        task_data["last_activity"] = datetime.now()
+                        task_data["message_count"] = 0 # Reset message count
+                        
+                        # Ensure event object exists
+                        self.task_events[task_id] = threading.Event()
+                        
+                        # Start the task execution in a new thread
+                        new_thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
+                        self.task_threads[task_id] = new_thread
+                        new_thread.start()
+                        
+                        self.logger.info(f"Watchdog: Successfully restarted task {task_id} for user {user_id}.")
+                        tasks_restarted_count += 1
+                    except Exception as e_restart:
+                        self.logger.error(f"Watchdog: Error restarting task {task_id} for user {user_id}: {e_restart}", exc_info=True)
+                        # Keep status as failed if restart fails
+                        task_data["status"] = "failed"
+                        task_data["last_activity"] = datetime.now()
+
+        if tasks_restarted_count > 0:
+            self.save_active_tasks() # Save changes if any tasks were restarted
+        self.logger.info(f"Watchdog: Finished check. Restarted {tasks_restarted_count} tasks.")
+
+
+    def start_watchdog_timer(self, interval_seconds=300): # 300 seconds = 5 minutes
+        self.logger.info(f"Initializing watchdog timer to check tasks every {interval_seconds} seconds.")
+        def watchdog_loop():
+            try:
+                self.logger.debug("Watchdog timer triggered.")
+                self.check_and_restart_failed_tasks() 
+            except Exception as e:
+                self.logger.error(f"Error in watchdog_loop: {e}", exc_info=True)
+            finally:
+                if hasattr(self, 'watchdog_timer_thread_obj') and self.watchdog_timer_thread_obj: 
+                     self.watchdog_timer_thread_obj = threading.Timer(interval_seconds, watchdog_loop)
+                     self.watchdog_timer_thread_obj.daemon = True 
+                     self.watchdog_timer_thread_obj.start()
+                     self.logger.debug(f"Watchdog timer rescheduled for {interval_seconds} seconds.")
+                else:
+                    self.logger.info("Watchdog timer not rescheduled (possibly during shutdown or stopped).")
+
+        self.watchdog_timer_thread_obj = threading.Timer(interval_seconds, watchdog_loop)
+        self.watchdog_timer_thread_obj.daemon = True
+        self.watchdog_timer_thread_obj.start()
+        self.logger.info(f"Watchdog timer started.")
 
     def check_recurring_tasks(self):
-        """Check for recurring tasks that need to be restarted"""
-        # This is a placeholder for recurring task logic
-        # In a real implementation, you would check for recurring tasks that are due
-        # and restart them if needed
+        """Check and re-queue recurring tasks that have completed"""
+        # This method would iterate through self.active_tasks (or persisted tasks)
+        # find tasks marked is_recurring=True and status=completed,
+        # and then re-trigger them, perhaps by calling start_posting_task again
+        # with updated start times or parameters.
+        # For simplicity, this is a placeholder.
+        self.logger.info("check_recurring_tasks - Placeholder, not fully implemented.")
+        # Example logic:
+        # with self.tasks_lock:
+        #     for task_id, task_data in list(self.active_tasks.items()):
+        #         if task_data.get("is_recurring") and task_data.get("status") == "completed":
+        #             self.logger.info(f"Re-queuing recurring task {task_id}")
+        #             # Modify task_data for next run (e.g., new start_time, reset message_count)
+        #             # self.start_posting_task(...) # Call with modified data
         pass
 
-    def start_watchdog_timer(self):
-        """Start a watchdog timer to periodically check and save tasks"""
-        def watchdog_function():
-            while True:
-                try:
-                    # Sleep for a while
-                    time.sleep(300)  # 5 minutes
-                    
-                    # Save active tasks
-                    self.save_active_tasks()
-                    
-                    # Check for any zombie tasks (tasks that are marked as running but their threads are dead)
-                    with self.tasks_lock:
-                        for task_id, task_data in list(self.active_tasks.items()):
-                            if task_data.get("status") == "running" and task_id not in self.task_threads:
-                                self.logger.warning(f"Found zombie task {task_id}. Marking as failed.")
-                                self.active_tasks[task_id]["status"] = "failed"
-                                self.active_tasks[task_id]["last_activity"] = datetime.now()
-                except Exception as e:
-                    self.logger.error(f"Error in watchdog timer: {str(e)}")
-        
-        # Start the watchdog in a daemon thread
-        watchdog_thread = threading.Thread(target=watchdog_function, daemon=True)
-        watchdog_thread.start()
-        self.logger.info("Started watchdog timer")
+# Global instance (if needed by other modules directly, though ideally accessed via an app context)
+# posting_service_instance = PostingService()
 
-    def start_auto_save_timer(self):
-        """Start a timer to periodically save active tasks"""
-        def auto_save_function():
-            while True:
-                try:
-                    # Sleep for a while
-                    time.sleep(60)  # 1 minute
-                    
-                    # Save active tasks
-                    self.save_active_tasks()
-                except Exception as e:
-                    self.logger.error(f"Error in auto-save timer: {str(e)}")
-        
-        # Start the auto-save in a daemon thread
-        auto_save_thread = threading.Thread(target=auto_save_function, daemon=True)
-        auto_save_thread.start()
-        self.logger.info("Started auto-save timer")
 
-    def cleanup(self):
-        """Clean up resources before shutdown"""
-        # Save active tasks
-        self.save_active_tasks()
-        
-        # Stop all running tasks
+
+
+    def clear_all_tasks_permanently(self):
+        """
+        Permanently clears all active and stopped posting tasks from memory and persistent storage.
+        """
+        self.logger.info("Attempting to clear all posting tasks permanently...")
+        cleared_count = 0
         with self.tasks_lock:
-            for task_id, task_data in list(self.active_tasks.items()):
-                if task_data.get("status") == "running":
-                    self.active_tasks[task_id]["status"] = "stopped"
-                    if task_id in self.task_events:
-                        self.task_events[task_id].set()
+            cleared_count = len(self.active_tasks)
+            # Stop any running threads associated with these tasks
+            for task_id in list(self.active_tasks.keys()): # Iterate over a copy of keys
+                if task_id in self.task_events:
+                    self.task_events[task_id].set() # Signal thread to stop
+                # Optionally join threads if immediate cleanup is critical, but can slow down command
+                # if task_id in self.task_threads and self.task_threads[task_id].is_alive():
+                #     self.task_threads[task_id].join(timeout=1.0) # Wait briefly for thread to exit
+            
+            self.active_tasks.clear()
+            self.task_threads.clear() # Clear thread references
+            self.task_events.clear()  # Clear event references
+            
+        self.save_active_tasks() # This will save an empty dictionary to active_posting.json
         
-        # Wait for all task threads to exit
-        for task_id, thread in list(self.task_threads.items()):
-            try:
-                thread.join(timeout=5)
-            except:
-                pass
-        
-        self.logger.info("Cleaned up posting service resources")
+        self.logger.info(f"Permanently cleared {cleared_count} posting tasks.")
+        return True, f"✅ تم مسح جميع مهام النشر ({cleared_count}) بشكل دائم."
 
-    def __del__(self):
-        """Destructor to ensure cleanup is called"""
-        try:
-            self.cleanup()
-        except:
-            pass
