@@ -10,9 +10,9 @@
         "delay_seconds": 500,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T05:23:46.924979",
-        "last_activity": "2025-05-18T05:23:46.924980",
-        "message_count": 0,
+        "start_time": "2025-05-18T05:23:46.857131",
+        "last_activity": "2025-05-18T06:05:58.154445",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     },
@@ -27,8 +27,8 @@
         "delay_seconds": 300,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T05:23:46.929649",
-        "last_activity": "2025-05-18T05:23:46.929650",
+        "start_time": "2025-05-18T05:23:46.929429",
+        "last_activity": "2025-05-18T05:59:35.449354",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
@@ -44,8 +44,42 @@
         "delay_seconds": 400,
         "exact_time": null,
         "status": "running",
-        "start_time": "2025-05-18T05:23:46.934586",
-        "last_activity": "2025-05-18T05:23:46.934588",
+        "start_time": "2025-05-18T05:23:46.934221",
+        "last_activity": "2025-05-18T06:04:23.864696",
+        "message_count": 1,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6459577996_1747564912.1704545": {
+        "user_id": 6459577996,
+        "post_id": "1747564912.170437",
+        "message": "او اس ان (باركود) بـ 6 ريال ✅\nأمازون برايم فيديو شهر بـ 3.5 ريال ✅\nنتفليكس شاشة واحدة أسبوعين+ بـ 2 ريال ✅\nشاهد VIP رياضية 3 شهور بـ 15 ريال (متبقي اشتراك واحد) ⚠️\nقروبات تيليجرام 2021 – أكثر من قروب متاح ✅\nأتعامل فقط مع البنوك السعودية – الصامل يتفضل.\n\nتواصلو مع\n\n@ srouin",
+        "group_ids": [
+            "-1001599134989",
+            "-1001894777304",
+            "-1001699992849"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-18T10:41:52.170458",
+        "last_activity": "2025-05-18T10:41:56.101929",
+        "message_count": 2,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7207131508_1747564948.0948765": {
+        "user_id": 7207131508,
+        "post_id": "1747564948.094869",
+        "message": "متوفر بوت نشر تلقائي اشتراك شهري ✨\nب2$ \nتريد تجربه مجانيه؟ شوف بايو\n\nمتوفر نتفلكس / شاهد / سبوتيفاي  / حسابات ستيم  / osn \nتعال خاصي فقط\n\nمتوفر انشاءات انستا 2012\n\n\nمتوفر اصنع لك اي نوع من بوتات تيليجرام \n\n\nمتوفر اعلان لك يوم كامل\n\nب50  سنت",
+        "group_ids": [
+            "-1001599134989"
+        ],
+        "delay_seconds": 200,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-18T10:42:28.094879",
+        "last_activity": "2025-05-18T10:42:28.094879",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
