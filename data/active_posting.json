@@ -60,8 +60,8 @@
         "delay_seconds": 200,
         "exact_time": null,
         "status": "failed",
-        "start_time": "2025-05-17T23:57:36.727360",
-        "last_activity": "2025-05-17T23:57:39.495907",
+        "start_time": "2025-05-18T00:02:36.731149",
+        "last_activity": "2025-05-18T00:02:39.071004",
         "message_count": 0,
         "message_id": null,
         "is_recurring": true
