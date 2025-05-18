@@ -11,10 +11,11 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-18T02:51:43.532659",
-        "last_activity": "2025-05-18T03:12:57.731770",
-        "message_count": 0,
+        "last_activity": "2025-05-18T03:31:25.727042",
+        "message_count": 1,
         "message_id": null,
-        "is_recurring": true
+        "is_recurring": true,
+        "restored": true
     },
     "6744224791_1747423402.8404486": {
         "user_id": 6744224791,
@@ -28,10 +29,11 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-18T02:51:43.536348",
-        "last_activity": "2025-05-18T03:16:20.007456",
+        "last_activity": "2025-05-18T03:26:46.563809",
         "message_count": 0,
         "message_id": null,
-        "is_recurring": true
+        "is_recurring": true,
+        "restored": true
     },
     "6744224791_1747483789.1069903": {
         "user_id": 6744224791,
@@ -45,25 +47,10 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-18T02:51:43.539622",
-        "last_activity": "2025-05-18T03:16:19.163537",
+        "last_activity": "2025-05-18T03:35:16.160597",
         "message_count": 2,
         "message_id": null,
-        "is_recurring": true
-    },
-    "7207131508_1747538428.2957976": {
-        "user_id": 7207131508,
-        "post_id": "1747538428.2957845",
-        "message": "متوفر بوت نشر تلقائي اشتراك شهري ✨\nب2$ \nتريد تجربه مجانيه؟ شوف بايو\n\nمتوفر نتفلكس / شاهد / سبوتيفاي  / حسابات ستيم  / osn \nتعال خاصي فقط\n\nمتوفر انشاءات انستا 2012\n\n\nمتوفر اصنع لك اي نوع من بوتات تيليجرام \n\n\nمتوفر اعلان لك يوم كامل\n\nب50  سنت",
-        "group_ids": [
-            "-1001599134989"
-        ],
-        "delay_seconds": 200,
-        "exact_time": null,
-        "status": "running",
-        "start_time": "2025-05-18T03:20:28.295802",
-        "last_activity": "2025-05-18T03:20:28.295802",
-        "message_count": 0,
-        "message_id": null,
-        "is_recurring": true
+        "is_recurring": true,
+        "restored": true
     }
 }

@@ -107,12 +107,10 @@ class PostingService:
                     loaded_tasks_from_json = json.load(f)
                 
                 restored_count = 0
-                restarted_count = 0
                 if loaded_tasks_from_json and isinstance(loaded_tasks_from_json, dict):
                     for task_id, task_doc in loaded_tasks_from_json.items():
-                        # تعديل: استعادة جميع المهام النشطة أو المتوقفة أو المتوقفة مؤقتاً
-                        # Restore all tasks that were running, stopped, or paused
-                        if task_doc.get("status") in ["running", "stopped", "paused"]: 
+                        # Only restore tasks that were running or explicitly marked for restore
+                        if task_doc.get("status") == "running": 
                             try:
                                 # Convert timestamps from string if necessary
                                 start_time_str = task_doc.get("start_time")
@@ -133,38 +131,17 @@ class PostingService:
                                 if not isinstance(task_doc.get("group_ids"), list):
                                     task_doc["group_ids"] = []
 
-                                # تعديل: إعادة تشغيل جميع المهام المتكررة تلقائياً بعد إعادة تشغيل البوت
-                                # Automatically restart all recurring tasks after bot restart
-                                is_recurring = task_doc.get("is_recurring", False)
-                                original_status = task_doc.get("status")
-                                
-                                # Set status to running for all recurring tasks
-                                if is_recurring:
-                                    task_doc["status"] = "running"
-                                    task_doc["last_activity"] = datetime.now()
-                                    restarted_count += 1
-                                    self.logger.info(f"Auto-restarting recurring task {task_id} (previous status: {original_status})")
-
                                 with self.tasks_lock:
                                     self.active_tasks[task_id] = task_doc
                                     self.task_events[task_id] = threading.Event()
+                                    # تعيين علامة خاصة للمهام المستعادة لتجنب النشر المزدوج
+                                    task_doc["restored"] = True
                                 
-                                self.logger.info(f"Restored task {task_id} (Recurring: {is_recurring}, Status: {task_doc.get('status')}) from JSON.")
+                                self.logger.info(f"Restored task {task_id} (Recurring: {task_doc.get('is_recurring', False)}) from JSON.")
                                 restored_count += 1
-                                
-                                # تعديل: إعادة تشغيل المهام المتكررة في خيوط منفصلة
-                                # Start threads for recurring tasks that are now set to running
-                                if is_recurring and task_doc.get("status") == "running":
-                                    user_id = task_doc.get("user_id")
-                                    if user_id:
-                                        thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
-                                        self.task_threads[task_id] = thread
-                                        thread.start()
-                                        self.logger.info(f"Started thread for recurring task {task_id}")
-                                    
                             except Exception as e_task:
                                 self.logger.error(f"Error processing restored task {task_id} from JSON: {e_task}")
-                self.logger.info(f"Restored {restored_count} active posting tasks from {self.active_tasks_json_file} (auto-restarted {restarted_count} recurring tasks)")
+                self.logger.info(f"Restored {restored_count} active posting tasks from {self.active_tasks_json_file}")
             else:
                  self.logger.info(f"{self.active_tasks_json_file} not found. No tasks to restore from JSON.")
         except FileNotFoundError:
@@ -571,7 +548,14 @@ class PostingService:
                             # Mark as failed first to ensure it's handled correctly by restart logic
                             task_data["status"] = "failed" 
                             task_data["last_activity"] = datetime.now()
-                            should_restart = True
+                            # التحقق من علامة المهام المستعادة لتجنب النشر المزدوج
+                            if task_data.get("restored"):
+                                self.logger.info(f"Watchdog: Skipping restart of restored task {task_id} to avoid duplicate publishing.")
+                                # إزالة علامة المهام المستعادة بعد أول فحص
+                                task_data.pop("restored", None)
+                                should_restart = False
+                            else:
+                                should_restart = True
                 
                 if should_restart and user_id:
                     try:
