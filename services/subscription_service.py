@@ -59,8 +59,8 @@ class SubscriptionService:
                 logger.warning("مجموعة الاشتراكات غير متاحة، استخدام الوضع الاحتياطي")
                 self.subscriptions_collection = FallbackCollection()
 
-            # Define path for SQLite database (Keep from original)
-            self.sqlite_db_path = "/home/ubuntu/bot_project/cuddly-speckled-cone/data/user_statistics.sqlite"
+            # Define path for SQLite database - FIXED: Changed path to writable directory
+            self.sqlite_db_path = "./data/user_statistics.sqlite"
             self._ensure_sqlite_db_exists() # Ensure DB and table exist (Keep from original)
 
             logger.info("تم تهيئة خدمة الاشتراك بنجاح")
@@ -353,121 +353,211 @@ class SubscriptionService:
         """Get all admin users from the database."""
         try:
             if self.users_collection is None: return []
-            admins_data = self.users_collection.find({"is_admin": True})
-            return [User.from_dict(admin_data) for admin_data in admins_data]
+            users_data = self.users_collection.find({'is_admin': True})
+            return [User.from_dict(user_data) for user_data in users_data]
         except Exception as e:
             logger.error(f"Error getting all admins: {str(e)}")
             return []
 
-    # --- Subscription Requests (SQLite) --- (Keep original methods)
-    def add_subscription_request(self, user_id, username, first_name, last_name):
-        """Add a subscription request to the SQLite database."""
+    def get_subscription_requests(self, status=None):
+        """Get subscription requests from SQLite database."""
         try:
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return []
+            
             conn = sqlite3.connect(self.sqlite_db_path)
             cursor = conn.cursor()
-            cursor.execute("""
-            INSERT INTO subscription_requests (user_id, username, first_name, last_name, status)
-            VALUES (?, ?, ?, ?, 'pending')
-            """, (user_id, username, first_name, last_name))
-            conn.commit()
-            conn.close()
-            return True, "تم إرسال طلب الاشتراك بنجاح."
-        except Exception as e:
-            logger.error(f"Error adding subscription request for {user_id}: {str(e)}")
-            return False, "حدث خطأ أثناء إرسال طلب الاشتراك."
-
-    def get_pending_requests(self):
-        """Get all pending subscription requests from SQLite."""
-        try:
-            conn = sqlite3.connect(self.sqlite_db_path)
-            conn.row_factory = sqlite3.Row # Access columns by name
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM subscription_requests WHERE status = 'pending' ORDER BY request_time DESC")
+            
+            if status:
+                cursor.execute("SELECT * FROM subscription_requests WHERE status = ?", (status,))
+            else:
+                cursor.execute("SELECT * FROM subscription_requests")
+                
             requests = cursor.fetchall()
+            cursor.close()
             conn.close()
-            return [dict(req) for req in requests] # Convert to list of dicts
+            
+            # Convert to dictionaries
+            column_names = ['id', 'user_id', 'username', 'first_name', 'last_name', 'request_time', 'status']
+            return [dict(zip(column_names, req)) for req in requests]
         except Exception as e:
-            logger.error(f"Error getting pending requests: {str(e)}")
+            logger.error(f"Error getting subscription requests: {str(e)}")
             return []
 
-    def update_subscription_request_status(self, request_id, status):
-        """Update the status of a specific subscription request by its ID."""
+    def add_subscription_request(self, user_id, username=None, first_name=None, last_name=None):
+        """Add a subscription request to SQLite database."""
         try:
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return False, "خطأ في قاعدة البيانات"
+            
             conn = sqlite3.connect(self.sqlite_db_path)
             cursor = conn.cursor()
-            cursor.execute("UPDATE subscription_requests SET status = ? WHERE id = ?", (status, request_id))
+            
+            # Check if user already has a pending request
+            cursor.execute("SELECT * FROM subscription_requests WHERE user_id = ? AND status = 'pending'", (user_id,))
+            existing_request = cursor.fetchone()
+            
+            if existing_request:
+                cursor.close()
+                conn.close()
+                return False, "لديك طلب اشتراك قيد الانتظار بالفعل"
+            
+            # Insert new request
+            cursor.execute(
+                "INSERT INTO subscription_requests (user_id, username, first_name, last_name, request_time, status) VALUES (?, ?, ?, ?, datetime('now'), 'pending')",
+                (user_id, username, first_name, last_name)
+            )
             conn.commit()
-            updated_rows = cursor.rowcount
+            cursor.close()
             conn.close()
-            if updated_rows > 0:
-                return True, f"تم تحديث حالة الطلب {request_id} إلى {status}."
-            else:
-                return False, f"لم يتم العثور على طلب بالمعرف {request_id}."
+            
+            return True, "تم إرسال طلب الاشتراك بنجاح"
         except Exception as e:
-            logger.error(f"Error updating request status for {request_id}: {str(e)}")
-            return False, f"حدث خطأ أثناء تحديث حالة الطلب {request_id}."
+            logger.error(f"Error adding subscription request: {str(e)}")
+            return False, f"حدث خطأ: {str(e)}"
+
+    def update_subscription_request_status(self, request_id, status):
+        """Update status of a subscription request."""
+        try:
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return False, "خطأ في قاعدة البيانات"
+            
+            conn = sqlite3.connect(self.sqlite_db_path)
+            cursor = conn.cursor()
+            
+            # Update request status
+            cursor.execute(
+                "UPDATE subscription_requests SET status = ? WHERE id = ?",
+                (status, request_id)
+            )
+            conn.commit()
+            
+            # Get user_id for the request
+            cursor.execute("SELECT user_id FROM subscription_requests WHERE id = ?", (request_id,))
+            result = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+            
+            if not result:
+                return False, f"لم يتم العثور على طلب بالمعرف {request_id}"
+            
+            return True, f"تم تحديث حالة الطلب إلى {status}", result[0]
+        except Exception as e:
+            logger.error(f"Error updating subscription request status: {str(e)}")
+            return False, f"حدث خطأ: {str(e)}", None
 
     def update_subscription_request_status_by_user(self, user_id, status):
-        """Update the status of a pending subscription request by user_id."""
+        """Update status of all pending subscription requests for a user."""
         try:
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return False
+            
             conn = sqlite3.connect(self.sqlite_db_path)
             cursor = conn.cursor()
-            # Update only the latest pending request for that user, if any
-            cursor.execute("""UPDATE subscription_requests SET status = ? 
-                           WHERE user_id = ? AND status = 'pending' 
-                           AND id = (SELECT MAX(id) FROM subscription_requests WHERE user_id = ? AND status = 'pending')""", 
-                           (status, user_id, user_id))
+            
+            # Update request status for all pending requests by this user
+            cursor.execute(
+                "UPDATE subscription_requests SET status = ? WHERE user_id = ? AND status = 'pending'",
+                (status, user_id)
+            )
             conn.commit()
-            updated_rows = cursor.rowcount
+            cursor.close()
             conn.close()
-            if updated_rows > 0:
-                logger.info(f"Updated request status for user {user_id} to {status}.")
-                return True
-            else:
-                logger.info(f"No pending request found for user {user_id} to update to {status}.")
-                return False
+            
+            return True
         except Exception as e:
-            logger.error(f"Error updating request status for user {user_id}: {str(e)}")
+            logger.error(f"Error updating subscription request status by user: {str(e)}")
             return False
 
-    def get_user_by_username(self, username):
-        """Get a user by their username (case-insensitive)."""
+    def get_user_subscription_requests(self, user_id):
+        """Get all subscription requests for a specific user."""
         try:
-            # MongoDB find is case-sensitive by default. Use regex for case-insensitivity.
-            user_data = self.users_collection.find_one({"username": {"$regex": f"^{username}$", "$options": "i"}})
-            if user_data:
-                return User.from_dict(user_data)
-            return None
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return []
+            
+            conn = sqlite3.connect(self.sqlite_db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT * FROM subscription_requests WHERE user_id = ?", (user_id,))
+            requests = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            # Convert to dictionaries
+            column_names = ['id', 'user_id', 'username', 'first_name', 'last_name', 'request_time', 'status']
+            return [dict(zip(column_names, req)) for req in requests]
         except Exception as e:
-            logger.error(f"Error getting user by username ", {username}, ": {str(e)}")
-            return None
+            logger.error(f"Error getting user subscription requests: {str(e)}")
+            return []
 
-    def get_active_users_count(self):
-        """Get the count of active users (excluding admins)."""
+    def has_pending_subscription_request(self, user_id):
+        """Check if user has a pending subscription request."""
         try:
-            # This assumes get_all_active_users() returns a list of User objects
-            # and correctly filters out admins and inactive subscriptions.
-            active_users = self.get_all_active_users() 
-            return len(active_users)
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return False
+            
+            conn = sqlite3.connect(self.sqlite_db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT COUNT(*) FROM subscription_requests WHERE user_id = ? AND status = 'pending'", (user_id,))
+            count = cursor.fetchone()[0]
+            
+            cursor.close()
+            conn.close()
+            
+            return count > 0
         except Exception as e:
-            logger.error(f"Error getting active users count: {str(e)}")
-            return 0
+            logger.error(f"Error checking pending subscription request: {str(e)}")
+            return False
 
-    def get_total_users_count(self):
-        """Get the total number of users."""
+    def delete_subscription_request(self, request_id):
+        """Delete a subscription request."""
         try:
-            if self.users_collection is None: return 0
-            return self.users_collection.count_documents({})
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return False, "خطأ في قاعدة البيانات"
+            
+            conn = sqlite3.connect(self.sqlite_db_path)
+            cursor = conn.cursor()
+            
+            # Delete request
+            cursor.execute("DELETE FROM subscription_requests WHERE id = ?", (request_id,))
+            conn.commit()
+            
+            cursor.close()
+            conn.close()
+            
+            return True, "تم حذف الطلب بنجاح"
         except Exception as e:
-            logger.error(f"Error getting total users count: {str(e)}")
-            return 0
+            logger.error(f"Error deleting subscription request: {str(e)}")
+            return False, f"حدث خطأ: {str(e)}"
 
-    def get_admin_users_count(self):
-        """Get the count of admin users."""
+    def delete_user_subscription_requests(self, user_id):
+        """Delete all subscription requests for a user."""
         try:
-            if self.users_collection is None: return 0
-            return self.users_collection.count_documents({"is_admin": True})
+            if not self.sqlite_db_path:
+                logger.error("SQLite database path not set")
+                return False
+            
+            conn = sqlite3.connect(self.sqlite_db_path)
+            cursor = conn.cursor()
+            
+            # Delete all requests for this user
+            cursor.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
+            conn.commit()
+            
+            cursor.close()
+            conn.close()
+            
+            return True
         except Exception as e:
-            logger.error(f"Error getting admin users count: {str(e)}")
-            return 0
-
+            logger.error(f"Error deleting user subscription requests: {str(e)}")
+            return False
