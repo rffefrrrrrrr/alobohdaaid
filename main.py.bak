@@ -3,15 +3,7 @@
 # Place your bot's code here (such as using Telethon, aiogram, etc.)
 
 # أضف هذا الكود في بداية الملف الرئيسي (bot.py أو main.py)
-from database.models 
-# استيراد ملف التشخيص لتتبع تسلسل الاستدعاءات
-try:
-    import diagnostic_hook
-    print("✅ تم استيراد ملف التشخيص بنجاح")
-except Exception as e:
-    print(f"❌ خطأ في استيراد ملف التشخيص: {str(e)}")
-
-import User # استيراد نماذج قاعدة البيانات لتتبع تسلسل الاستدعاءات
+from database.models # استيراد ملف التشخيص لتتبع تسلسل الاستدعاءات
 try:
     import diagnostic_hook
     print("✅ تم استيراد ملف التشخيص بنجاح")

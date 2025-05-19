@@ -153,29 +153,6 @@ class PostingService:
             self.active_tasks = {}
     
     def _resume_active_tasks(self):
-        # === بداية التسجيل التشخيصي المضاف ===
-        logger.info("=== بدء استئناف المهام النشطة ===")
-        logger.info(f"عدد المهام النشطة في الذاكرة: {len(self.active_tasks)}")
-        
-        # تسجيل تفاصيل كل مهمة
-        for task_id, task_data in self.active_tasks.items():
-            logger.info(f"تفاصيل المهمة {task_id}:")
-            logger.info(f"  - الحالة: {task_data.get('status')}")
-            logger.info(f"  - معرف المستخدم: {task_data.get('user_id')}")
-            logger.info(f"  - عدد المجموعات: {len(task_data.get('group_ids', []))}")
-            logger.info(f"  - آخر نشاط: {task_data.get('last_activity')}")
-        
-        # تسجيل حالة الخيوط الحالية
-        logger.info(f"عدد خيوط المهام الحالية: {len(self.task_threads)}")
-        for thread_id, thread in self.task_threads.items():
-            logger.info(f"  - الخيط {thread_id}: نشط = {thread.is_alive()}")
-        
-        # تسجيل حالة أحداث التوقف
-        logger.info(f"عدد أحداث التوقف الحالية: {len(self.task_events)}")
-        for event_id, event in self.task_events.items():
-            logger.info(f"  - الحدث {event_id}: معين = {event.is_set()}")
-        # === نهاية التسجيل التشخيصي المضاف ===
-
         """إعادة تشغيل المهام النشطة بعد إعادة تشغيل البوت"""
         resumed_count = 0
         with self.tasks_lock:
@@ -317,23 +294,6 @@ class PostingService:
         return task_id, True
     
     def _execute_task(self, task_id, user_id):
-        # === بداية التسجيل التشخيصي المضاف ===
-        logger.info(f"=== بدء تنفيذ المهمة {task_id} للمستخدم {user_id} ===")
-        
-        # تسجيل حالة المهمة
-        with self.tasks_lock:
-            if task_id in self.active_tasks:
-                task_data = self.active_tasks[task_id]
-                logger.info(f"حالة المهمة {task_id} قبل التنفيذ:")
-                logger.info(f"  - الحالة: {task_data.get('status')}")
-                logger.info(f"  - معرف المستخدم: {task_data.get('user_id')}")
-                logger.info(f"  - عدد المجموعات: {len(task_data.get('group_ids', []))}")
-                logger.info(f"  - المجموعات: {task_data.get('group_ids', [])}")
-                logger.info(f"  - آخر نشاط: {task_data.get('last_activity')}")
-            else:
-                logger.warning(f"المهمة {task_id} غير موجودة في الذاكرة")
-        # === نهاية التسجيل التشخيصي المضاف ===
-
         """تنفيذ مهمة نشر (تعمل في خيط)"""
         # التحقق من حالة المهمة قبل البدء
         with self.tasks_lock:
@@ -709,24 +669,7 @@ class PostingService:
                     
                     # محاولة إرسال الرسالة إلى المجموعة
                     try:
-                        
-                        # === بداية التسجيل التشخيصي المضاف ===
-                        logger.info(f"تفاصيل إضافية عن المجموعة {group_id}:")
-                        logger.info(f"  - نوع المعرف: {type(group_id)}")
-                        logger.info(f"  - طول المعرف: {len(str(group_id))}")
-                        logger.info(f"  - محاولة التحقق من صحة المعرف...")
-                        try:
-                            # التحقق من صحة المعرف
-                            if str(group_id).startswith('-100'):
-                                logger.info(f"  - المعرف يبدأ بـ -100، قد يكون معرف مجموعة/قناة")
-                                if len(str(group_id)) > 13:
-                                    logger.warning(f"  - المعرف طويل جداً ({len(str(group_id))} أحرف)، قد يكون غير صالح")
-                            elif str(group_id).startswith('@'):
-                                logger.info(f"  - المعرف يبدأ بـ @، قد يكون اسم مستخدم لقناة/مجموعة")
-                        except Exception as e:
-                            logger.error(f"  - خطأ في التحقق من صحة المعرف: {str(e)}")
-                        # === نهاية التسجيل التشخيصي المضاف ===
-logger.info(f"محاولة إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}")
+                        logger.info(f"محاولة إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}")
                         
                         # محاولة الانضمام إلى المجموعة إذا كانت قناة عامة
                         try:
