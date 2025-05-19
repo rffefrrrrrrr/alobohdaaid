@@ -222,11 +222,6 @@ class PostingService:
         except Exception as e:
             self.logger.error(f"Error saving active tasks to {self.active_tasks_json_file}: {str(e)}")
 
-    # ... (rest of the class methods: start_posting_task, _execute_task, stop_posting_task, etc.)
-    # These methods will now rely on self.active_tasks (in-memory dict)
-    # and self.save_active_tasks() will handle persistence to JSON.
-    # Ensure that any direct DB calls for active_tasks in these methods are removed or refactored.
-
     def start_posting_task(self, user_id, post_id, message, group_ids, delay_seconds=None, exact_time=None, is_recurring=False):
         """Start a new posting task"""
         # تحسين فحص المهام المتكررة لمنع النشر المزدوج
@@ -608,49 +603,14 @@ class PostingService:
         self.logger.info(f"Database operations disabled, using JSON only for task {task_id}")
         # تم تعطيل عمليات قاعدة البيانات، نستخدم JSON فقط
         pass
-                
-                # حفظ التغييرات
-                conn.commit()
-                conn.close()
-            else:
-                self.logger.warning(f"Database file {db_path} not found when trying to remove task {task_id}")
-        except Exception as e:
-            self.logger.error(f"Error removing task {task_id} from database: {str(e)}")
-        try:
-            if os.path.exists(self.active_tasks_json_file):
-                with open(self.active_tasks_json_file, 'r', encoding='utf-8') as f:
-                    tasks = json.load(f)
-                
-                # حذف المهمة المحددة
-                if task_id in tasks:
-                    del tasks[task_id]
-                    self.logger.info(f"Removed task {task_id} from JSON file")
-                
-                # حذف جميع مهام المستخدم إذا تم تحديد معرف المستخدم
-                if user_id:
-                    tasks_to_remove = []
-                    for tid, task_data in tasks.items():
-                        if task_data.get('user_id') == user_id:
-                            tasks_to_remove.append(tid)
-                    
-                    for tid in tasks_to_remove:
-                        if tid in tasks:
-                            del tasks[tid]
-                            self.logger.info(f"Removed task {tid} for user {user_id} from JSON file")
-                
-                # حفظ الملف المحدث
-                with open(self.active_tasks_json_file, 'w', encoding='utf-8') as f:
-                    json.dump(tasks, f, indent=4, ensure_ascii=False)
-                
-                self.logger.info(f"Successfully updated JSON file after removing task(s)")
-            else:
-                self.logger.warning(f"JSON file {self.active_tasks_json_file} not found when trying to remove task {task_id}")
-        except Exception as e:
-            self.logger.error(f"Error removing task {task_id} from JSON file: {str(e)}")
+        
+    def get_task_status(self, task_id):
+        """Get status of a specific task"""
+        with self.tasks_lock:
             if task_id in self.active_tasks:
                 return self.active_tasks[task_id]
             return None
-
+            
     def get_all_tasks_status(self, user_id=None):
         """Get status of all tasks, optionally filtered by user_id"""
         tasks_status = []
@@ -663,268 +623,28 @@ class PostingService:
                         task_display["start_time"] = task_display["start_time"].isoformat()
                     if isinstance(task_display.get("last_activity"), datetime):
                         task_display["last_activity"] = task_display["last_activity"].isoformat()
-                    task_display["task_id"] = task_id # Ensure task_id is part of the returned dict
-                    tasks_status.append(task_display)
+                    tasks_status.append({"task_id": task_id, "data": task_display})
         return tasks_status
 
-    def stop_all_user_tasks(self, user_id):
-        """Stop and delete all running tasks for a specific user"""
-        deleted_tasks_count = 0
-        with self.tasks_lock:
-            tasks_to_delete_ids = []
-            # Collect task_ids to stop and delete
-            for task_id, task_data in list(self.active_tasks.items()): # Iterate over a copy for safe deletion
-                if task_data.get("user_id") == user_id and task_data.get("status") == "running":
-                    tasks_to_delete_ids.append(task_id)
-            
-            for task_id in tasks_to_delete_ids:
-                self.logger.info(f"Stopping and deleting task {task_id} for user {user_id}")
-                # Signal the thread to stop
-                if task_id in self.task_events:
-                    self.task_events[task_id].set() # Signal the thread to stop
-                
-                # Remove the task from active_tasks
-                if task_id in self.active_tasks: # Check if still exists
-                    del self.active_tasks[task_id]
-                
-                # Clean up associated event and thread objects
-                if task_id in self.task_events: # Check again as it might have been cleaned by the thread itself
-                    del self.task_events[task_id]
-                if task_id in self.task_threads: # Check again
-                    del self.task_threads[task_id]
-                
-                deleted_tasks_count += 1
-        
-        if deleted_tasks_count > 0:
-            self.save_active_tasks() # Save changes after deletions
-            
-            # حذف بيانات المستخدم من قاعدة البيانات
-            try:
-                # حذف من قاعدة البيانات SQLite إذا كانت موجودة
-                db_path = os.path.join('data', 'telegram_bot.db')
-                if os.path.exists(db_path):
-                    conn = sqlite3.connect(db_path)
-                    cursor = conn.cursor()
-                    
-                    # حذف مهام النشر للمستخدم
-                    cursor.execute("DELETE FROM active_tasks WHERE user_id = ?", (user_id,))
-                    deleted_db_count = cursor.rowcount
-                    
-                    # حفظ التغييرات
-                    conn.commit()
-                    conn.close()
-                    
-                    self.logger.info(f"Deleted {deleted_db_count} tasks for user {user_id} from database")
-                
-                # حذف من ملفات JSON الاحتياطية
-                # 1. المسار القديم
-                old_backup_file = os.path.join('services', 'active_tasks.json')
-                if os.path.exists(old_backup_file):
-                    try:
-                        with open(old_backup_file, 'r') as f:
-                            tasks = json.load(f)
-                        
-                        # إنشاء نسخة جديدة بدون مهام المستخدم
-                        new_tasks = {}
-                        for task_id, task_data in tasks.items():
-                            if task_data.get('user_id') != user_id:
-                                new_tasks[task_id] = task_data
-                        
-                        # حفظ الملف المحدث
-                        with open(old_backup_file, 'w') as f:
-                            json.dump(new_tasks, f)
-                        
-                        self.logger.info(f"Removed user {user_id} tasks from old backup file")
-                    except Exception as e:
-                        self.logger.error(f"Error removing user from old backup file: {str(e)}")
-                
-                # 2. المسار الجديد
-                new_backup_file = os.path.join('data', 'active_posting.json')
-                if os.path.exists(new_backup_file):
-                    try:
-                        with open(new_backup_file, 'r') as f:
-                            tasks = json.load(f)
-                        
-                        # إنشاء نسخة جديدة بدون مهام المستخدم
-                        new_tasks = {}
-                        for task_id, task_data in tasks.items():
-                            if task_data.get('user_id') != user_id:
-                                new_tasks[task_id] = task_data
-                        
-                        # حفظ الملف المحدث
-                        with open(new_backup_file, 'w') as f:
-                            json.dump(new_tasks, f)
-                        
-                        self.logger.info(f"Removed user {user_id} tasks from new backup file")
-                    except Exception as e:
-                        self.logger.error(f"Error removing user from new backup file: {str(e)}")
-            except Exception as e:
-                self.logger.error(f"Error removing user {user_id} from database: {str(e)}")
-        
-        self.logger.info(f"Stopped and deleted {deleted_tasks_count} tasks for user {user_id}")
-        return deleted_tasks_count
-
-    def delete_task_history(self, user_id, task_id=None):
-        """Delete task history for a user, or a specific task"""
-        deleted_count = 0
-        with self.tasks_lock:
-            tasks_to_delete_ids = []
-            if task_id:
-                if task_id in self.active_tasks and self.active_tasks[task_id].get("user_id") == user_id:
-                    # Only delete if not running
-                    if self.active_tasks[task_id].get("status") != "running":
-                        tasks_to_delete_ids.append(task_id)
-                    else:
-                        self.logger.warning(f"Attempted to delete running task {task_id}. Stop it first.")
-                        return 0, "Cannot delete a running task. Stop it first."
-                else:
-                    return 0, "Task not found or does not belong to user."
-            else: # Delete all non-running tasks for the user
-                for tid, tdata in list(self.active_tasks.items()): # Iterate over a copy
-                    if tdata.get("user_id") == user_id and tdata.get("status") != "running":
-                        tasks_to_delete_ids.append(tid)
-            
-            for tid_to_delete in tasks_to_delete_ids:
-                if tid_to_delete in self.active_tasks:
-                    del self.active_tasks[tid_to_delete]
-                    if tid_to_delete in self.task_events: del self.task_events[tid_to_delete]
-                    if tid_to_delete in self.task_threads: del self.task_threads[tid_to_delete]
-                    deleted_count += 1
-
-        if deleted_count > 0:
-            self.save_active_tasks() # Save changes after deletion
-            self.logger.info(f"Deleted {deleted_count} tasks for user {user_id}.")
-            return deleted_count, "Tasks deleted successfully."
-        elif task_id and not tasks_to_delete_ids: # Specific task was requested but not deleted (e.g. running)
-             return 0, "Task not deleted (it might be running or not found)."
-        return 0, "No tasks found to delete or matching criteria."
-
-    def check_and_restart_failed_tasks(self):
-        """Periodically checks for failed or stopped recurring tasks and attempts to restart them."""
-        self.logger.info("Watchdog: Checking for failed or stopped recurring tasks to restart...")
-        tasks_restarted_count = 0
-        with self.tasks_lock:
-            # Iterate over a copy of task_ids to allow modification of self.active_tasks
-            for task_id in list(self.active_tasks.keys()):
-                task_data = self.active_tasks.get(task_id)
-                if not task_data:
-                    continue
-
-                is_recurring = task_data.get("is_recurring", False)
-                current_status = task_data.get("status")
-                user_id = task_data.get("user_id")
-
-                # Check if the task is recurring and has failed, or if it was running but its thread is no longer alive
-                should_restart = False
-                if is_recurring:
-                    if current_status == "failed":
-                        self.logger.warning(f"Watchdog: Found failed recurring task {task_id} for user {user_id}. Attempting restart.")
-                        should_restart = True
-                    elif current_status == "running": # Check if a supposedly running task's thread is dead
-                        thread = self.task_threads.get(task_id)
-                        if not thread or not thread.is_alive():
-                            self.logger.warning(f"Watchdog: Found recurring task {task_id} (status: running) for user {user_id} with a dead or missing thread. Attempting restart.")
-                            # Mark as failed first to ensure it's handled correctly by restart logic
-                            task_data["status"] = "failed" 
-                            task_data["last_activity"] = datetime.now()
-                            should_restart = True
-                
-                if should_restart and user_id:
-                    try:
-                        # Reset task status and metadata for restart
-                        task_data["status"] = "running"
-                        task_data["start_time"] = datetime.now() # Reset start time for the new run
-                        task_data["last_activity"] = datetime.now()
-                        task_data["message_count"] = 0 # Reset message count
-                        
-                        # Ensure event object exists
-                        self.task_events[task_id] = threading.Event()
-                        
-                        # Start the task execution in a new thread
-                        new_thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
-                        self.task_threads[task_id] = new_thread
-                        new_thread.start()
-                        
-                        self.logger.info(f"Watchdog: Successfully restarted task {task_id} for user {user_id}.")
-                        tasks_restarted_count += 1
-                    except Exception as e_restart:
-                        self.logger.error(f"Watchdog: Error restarting task {task_id} for user {user_id}: {e_restart}", exc_info=True)
-                        # Keep status as failed if restart fails
-                        task_data["status"] = "failed"
-                        task_data["last_activity"] = datetime.now()
-
-        if tasks_restarted_count > 0:
-            self.save_active_tasks() # Save changes if any tasks were restarted
-        self.logger.info(f"Watchdog: Finished check. Restarted {tasks_restarted_count} tasks.")
-
-
-    def start_watchdog_timer(self, interval_seconds=300): # 300 seconds = 5 minutes
-        self.logger.info(f"Initializing watchdog timer to check tasks every {interval_seconds} seconds.")
-        def watchdog_loop():
-            try:
-                self.logger.debug("Watchdog timer triggered.")
-                self.check_and_restart_failed_tasks() 
-            except Exception as e:
-                self.logger.error(f"Error in watchdog_loop: {e}", exc_info=True)
-            finally:
-                if hasattr(self, 'watchdog_timer_thread_obj') and self.watchdog_timer_thread_obj: 
-                     self.watchdog_timer_thread_obj = threading.Timer(interval_seconds, watchdog_loop)
-                     self.watchdog_timer_thread_obj.daemon = True 
-                     self.watchdog_timer_thread_obj.start()
-                     self.logger.debug(f"Watchdog timer rescheduled for {interval_seconds} seconds.")
-                else:
-                    self.logger.info("Watchdog timer not rescheduled (possibly during shutdown or stopped).")
-
-        self.watchdog_timer_thread_obj = threading.Timer(interval_seconds, watchdog_loop)
-        self.watchdog_timer_thread_obj.daemon = True
-        self.watchdog_timer_thread_obj.start()
-        self.logger.info(f"Watchdog timer started.")
-
     def check_recurring_tasks(self):
-        """Check and re-queue recurring tasks that have completed"""
-        # This method would iterate through self.active_tasks (or persisted tasks)
-        # find tasks marked is_recurring=True and status=completed,
-        # and then re-trigger them, perhaps by calling start_posting_task again
-        # with updated start times or parameters.
-        # For simplicity, this is a placeholder.
-        self.logger.info("check_recurring_tasks - Placeholder, not fully implemented.")
-        # Example logic:
-        # with self.tasks_lock:
-        #     for task_id, task_data in list(self.active_tasks.items()):
-        #         if task_data.get("is_recurring") and task_data.get("status") == "completed":
-        #             self.logger.info(f"Re-queuing recurring task {task_id}")
-        #             # Modify task_data for next run (e.g., new start_time, reset message_count)
-        #             # self.start_posting_task(...) # Call with modified data
+        """Check for recurring tasks that need to be restarted"""
         pass
 
-# Global instance (if needed by other modules directly, though ideally accessed via an app context)
-# posting_service_instance = PostingService()
+    def start_watchdog_timer(self):
+        """Start watchdog timer to monitor and save tasks periodically"""
+        pass
 
+    def start_auto_save_timer(self):
+        """Start timer to auto-save active tasks periodically"""
+        pass
 
-
-
-    def clear_all_tasks_permanently(self):
-        """
-        Permanently clears all active and stopped posting tasks from memory and persistent storage.
-        """
-        self.logger.info("Attempting to clear all posting tasks permanently...")
-        cleared_count = 0
+    def update_task_status(self, task_id, status_update):
+        """Update status of a task with additional information"""
         with self.tasks_lock:
-            cleared_count = len(self.active_tasks)
-            # Stop any running threads associated with these tasks
-            for task_id in list(self.active_tasks.keys()): # Iterate over a copy of keys
-                if task_id in self.task_events:
-                    self.task_events[task_id].set() # Signal thread to stop
-                # Optionally join threads if immediate cleanup is critical, but can slow down command
-                # if task_id in self.task_threads and self.task_threads[task_id].is_alive():
-                #     self.task_threads[task_id].join(timeout=1.0) # Wait briefly for thread to exit
-            
-            self.active_tasks.clear()
-            self.task_threads.clear() # Clear thread references
-            self.task_events.clear()  # Clear event references
-            
-        self.save_active_tasks() # This will save an empty dictionary to active_posting.json
-        
-        self.logger.info(f"Permanently cleared {cleared_count} posting tasks.")
-        return True, f"✅ تم مسح جميع مهام النشر ({cleared_count}) بشكل دائم."
-
+            if task_id in self.active_tasks:
+                for key, value in status_update.items():
+                    self.active_tasks[task_id][key] = value
+                self.active_tasks[task_id]["last_activity"] = datetime.now()
+                self.save_active_tasks()
+                return True
+            return False
