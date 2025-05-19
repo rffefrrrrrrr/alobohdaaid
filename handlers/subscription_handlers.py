@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
 from services.subscription_service import SubscriptionService
+from services.posting_service import PostingService
 from config.config import ADMIN_USER_ID
 from utils.decorators import admin_only
 from utils.channel_subscription import channel_subscription, auto_channel_subscription_required
@@ -21,6 +22,7 @@ class SubscriptionHandlers:
     def __init__(self, dispatcher):
         self.dispatcher = dispatcher
         self.subscription_service = SubscriptionService()
+        self.posting_service = PostingService()  # إضافة خدمة النشر للوصول إلى حالة المهام
 
         # Initialize user statistics database
         self.init_statistics_db()
@@ -125,6 +127,12 @@ class SubscriptionHandlers:
 
         # Callback queries
         self.dispatcher.add_handler(CallbackQueryHandler(self.subscription_callback, pattern='^subscription_'))
+        
+        # إضافة معالج لزر حالة النشر
+        self.dispatcher.add_handler(CallbackQueryHandler(self.handle_start_status, pattern='^start_status$'))
+        
+        # إضافة معالج لزر إيقاف النشر
+        self.dispatcher.add_handler(CallbackQueryHandler(self.handle_stop_posting, pattern='^stop_posting$'))
 
         # Group event handlers - for tracking user activity
         self.dispatcher.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.handle_new_chat_members))
@@ -1038,3 +1046,109 @@ class SubscriptionHandlers:
                 )
             except:
                 pass
+
+    # إضافة معالج لزر حالة النشر - نسخ منطق check_status من posting_handlers.py
+    async def handle_start_status(self, update: Update, context: CallbackContext):
+        """معالج زر حالة النشر - نفس منطق check_status في posting_handlers.py"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # الحصول على معرف المستخدم
+            user_id = update.effective_user.id
+            
+            # الحصول على حالة النشر
+            tasks = self.posting_service.get_all_tasks_status(user_id)
+            
+            if tasks:
+                # المهام النشطة
+                active_tasks = [task for task in tasks if task.get('status') == 'running']
+                
+                if not active_tasks:
+                    await query.edit_message_text(
+                        text="📊 *حالة النشر:*\n\n"
+                             "لا يوجد نشر نشط حالياً.",
+                        parse_mode="Markdown"
+                    )
+                    return
+                
+                # إنشاء رسالة الحالة
+                status_text = "📊 *حالة النشر النشطة:*\n\n"
+                
+                for task in active_tasks:
+                    group_count = len(task.get('group_ids', []))
+                    message_count = task.get('message_count', 0)
+                    # التأكد من أن message_count رقم صحيح
+                    if not isinstance(message_count, int):
+                        message_count = 0
+                    
+                    status_text += f"🆔 *معرف المهمة:* `{task.get('task_id', 'N/A')}`\n"
+                    status_text += f"👥 *المجموعات:* {group_count} مجموعة\n"
+                    status_text += f"✅ *تم النشر في:* {message_count} مجموعة\n"
+                    
+                    if task.get('exact_time'):
+                        status_text += f"🕒 *التوقيت:* {task.get('exact_time')}\n"
+                    elif task.get('delay_seconds', 0) > 0:
+                        status_text += f"⏳ *التأخير:* {task.get('delay_seconds')} ثانية\n"
+                    
+                    start_time_str = task.get('start_time', 'غير متوفر')
+                    if isinstance(start_time_str, datetime):
+                        start_time_str = start_time_str.strftime("%Y-%m-%d %H:%M:%S")
+                    status_text += f"⏱ *بدأ في:* {start_time_str}\n\n"
+                
+                # إنشاء لوحة المفاتيح
+                keyboard = [
+                    [InlineKeyboardButton("⛔ إيقاف كل النشر", callback_data="stop_posting")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # تحديث رسالة الحالة
+                await query.edit_message_text(
+                    text=status_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                # لا توجد مهام نشطة
+                await query.edit_message_text(
+                    text="📊 *حالة النشر:*\n\n"
+                         "لا يوجد نشر نشط حالياً.",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"خطأ في التحقق من حالة النشر: {str(e)}")
+            await query.edit_message_text(
+                text="❌ *حدث خطأ أثناء التحقق من حالة النشر. يرجى المحاولة مرة أخرى.*",
+                parse_mode="Markdown"
+            )
+
+    # إضافة معالج لزر إيقاف النشر - نسخ منطق handle_stop_posting من posting_handlers.py
+    async def handle_stop_posting(self, update: Update, context: CallbackContext):
+        """معالج زر إيقاف النشر - نفس منطق handle_stop_posting في posting_handlers.py"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # الحصول على معرف المستخدم
+            user_id = update.effective_user.id
+            
+            # الحصول على جميع المهام لهذا المستخدم قبل إيقافها
+            tasks = self.posting_service.get_all_tasks_status(user_id)
+            active_tasks = [task for task in tasks if task.get('status') == 'running']
+            
+            # إيقاف النشر وحذف المهام (وليس فقط وضع علامة "متوقف")
+            stopped_count = self.posting_service.stop_all_user_tasks(user_id)
+            success = stopped_count > 0
+            result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
+            
+            # تحديث الرسالة
+            await query.edit_message_text(
+                text=f"{'✅' if success else '❌'} *{result_message}*",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"خطأ في إيقاف النشر: {str(e)}")
+            await query.edit_message_text(
+                text="❌ *حدث خطأ أثناء إيقاف النشر. يرجى المحاولة مرة أخرى.*",
+                parse_mode="Markdown"
+            )
