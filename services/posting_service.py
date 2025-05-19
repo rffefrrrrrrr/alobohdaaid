@@ -302,19 +302,6 @@ class PostingService:
                                 
                                 if stop_event.is_set():
                                     logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار حتى الوقت المحدد")
-                                    
-                                    with self.tasks_lock:
-                                        if task_id in self.active_tasks:
-                                            self.active_tasks[task_id]["status"] = "stopped"
-                                            self.active_tasks[task_id]["last_activity"] = datetime.now()
-                                    
-                                    # حفظ الحالة بعد إيقاف المهمة أثناء الانتظار
-                                    save_result = self.save_active_tasks()
-                                    if save_result:
-                                        logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
-                                    else:
-                                        logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
-                                    
                                     return
                             except asyncio.TimeoutError:
                                 # انتهت مهلة الانتظار، استمر في التنفيذ
@@ -325,27 +312,11 @@ class PostingService:
                 # التحقق من حدث التوقف مرة أخرى قبل بدء حلقة الإرسال
                 if stop_event.is_set():
                     logger.info(f"تم تعيين حدث التوقف للمهمة {task_id} قبل بدء حلقة الإرسال. إلغاء المهمة.")
-                    
-                    with self.tasks_lock:
-                        if task_id in self.active_tasks:
-                            self.active_tasks[task_id]["status"] = "stopped"
-                            self.active_tasks[task_id]["last_activity"] = datetime.now()
-                    
-                    # حفظ الحالة
-                    self.save_active_tasks()
                     return
                 
                 # التحقق من وجود مجموعات للإرسال
                 if not group_ids:
                     logger.warning(f"لا توجد مجموعات للإرسال في المهمة {task_id}. إنهاء المهمة.")
-                    
-                    with self.tasks_lock:
-                        if task_id in self.active_tasks:
-                            self.active_tasks[task_id]["status"] = "completed"
-                            self.active_tasks[task_id]["last_activity"] = datetime.now()
-                    
-                    # حفظ الحالة
-                    self.save_active_tasks()
                     return
                 
                 # إرسال الرسالة إلى كل مجموعة
@@ -412,62 +383,19 @@ class PostingService:
                                     break
                     except Exception as e:
                         logger.error(f"خطأ في إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}: {str(e)}")
-                
-                # تحديث حالة المهمة إلى "مكتملة" إذا لم يتم إيقافها
-                with self.tasks_lock:
-                    if task_id in self.active_tasks:
-                        if not stop_event.is_set() and self.active_tasks[task_id].get("status") == "running":
-                            self.active_tasks[task_id]["status"] = "completed"
-                            self.active_tasks[task_id]["last_activity"] = datetime.now()
-                            
-                            # حفظ الحالة بعد اكتمال المهمة
-                            save_result = self.save_active_tasks()
-                            if save_result:
-                                logger.info(f"تم حفظ حالة المهام بعد اكتمال المهمة {task_id}")
-                            else:
-                                logger.warning(f"فشل حفظ حالة المهام بعد اكتمال المهمة {task_id}")
-                        elif stop_event.is_set():
-                            # تأكيد أن المهمة متوقفة
-                            self.active_tasks[task_id]["status"] = "stopped"
-                            self.active_tasks[task_id]["last_activity"] = datetime.now()
-                            
-                            # حفظ الحالة بعد إيقاف المهمة
-                            save_result = self.save_active_tasks()
-                            if save_result:
-                                logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} في نهاية التنفيذ")
-                            else:
-                                logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} في نهاية التنفيذ")
+                        
+                        # التحقق من حدث التوقف بعد كل استثناء
+                        if stop_event.is_set():
+                            logger.info(f"تم إيقاف المهمة {task_id} بعد استثناء")
+                            break
             except Exception as e:
                 logger.error(f"خطأ في تنفيذ المهمة {task_id}: {str(e)}")
-                
-                with self.tasks_lock:
-                    if task_id in self.active_tasks:
-                        self.active_tasks[task_id]["status"] = "failed"
-                        self.active_tasks[task_id]["last_activity"] = datetime.now()
-                
-                # حفظ الحالة بعد فشل المهمة
-                save_result = self.save_active_tasks()
-                if save_result:
-                    logger.info(f"تم حفظ حالة المهام بعد فشل المهمة {task_id}")
-                else:
-                    logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id}")
             finally:
                 # تنظيف الموارد
                 try:
                     await client.disconnect()
                 except:
                     pass
-                
-                # إزالة المراجع إذا كانت المهمة مكتملة أو فشلت أو توقفت
-                with self.tasks_lock:
-                    if task_id in self.active_tasks and self.active_tasks[task_id].get("status") in ["completed", "failed", "stopped"]:
-                        if task_id in self.task_events:
-                            # لا نحذف الحدث، ولكن نتأكد من تعيينه لمنع أي تنفيذ إضافي
-                            self.task_events[task_id].set()
-                        
-                        # إزالة مرجع الخيط
-                        if task_id in self.task_threads:
-                            del self.task_threads[task_id]
         
         try:
             # تنفيذ الروتين المشترك
@@ -479,6 +407,16 @@ class PostingService:
                 loop.close()
             except:
                 pass
+            
+            # التحقق من حالة المهمة بعد انتهاء الخيط
+            with self.tasks_lock:
+                if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
+                    logger.info(f"انتهى خيط المهمة {task_id} بشكل طبيعي، تحديث الحالة إلى 'completed'")
+                    self.active_tasks[task_id]["status"] = "completed"
+                    self.active_tasks[task_id]["last_activity"] = datetime.now()
+                    
+                    # حفظ الحالة بعد اكتمال المهمة
+                    self.save_active_tasks()
     
     async def _send_message_to_group(self, client, group_id, message):
         """مساعد لإرسال رسالة إلى مجموعة واحدة والتعامل مع الأخطاء"""
@@ -502,16 +440,30 @@ class PostingService:
             return False
     
     def _stop_task_internal(self, task_id):
-        """إيقاف مهمة داخلياً وحذفها"""
+        """إيقاف مهمة داخلياً وحذفها مع انتظار انتهاء الخيط"""
         if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
             logger.info(f"إيقاف وحذف المهمة {task_id} داخلياً")
+            
+            # حفظ حالة المهمة قبل الحذف للإرجاع
+            task_status = self.active_tasks[task_id].get("status", "unknown")
             
             # إشارة للخيط بالتوقف
             if task_id in self.task_events:
                 self.task_events[task_id].set()
             
+            # انتظار انتهاء الخيط (مع مهلة زمنية)
+            thread = self.task_threads.get(task_id)
+            if thread and thread.is_alive():
+                logger.info(f"انتظار انتهاء خيط المهمة {task_id}...")
+                thread.join(timeout=5.0)  # انتظار 5 ثوانٍ كحد أقصى
+                
+                # التحقق مما إذا كان الخيط لا يزال حياً بعد المهلة
+                if thread.is_alive():
+                    logger.warning(f"لم ينتهِ خيط المهمة {task_id} خلال المهلة المحددة. سيتم المتابعة بالحذف.")
+            
             # حذف المهمة من القائمة النشطة
-            del self.active_tasks[task_id]
+            if task_id in self.active_tasks:
+                del self.active_tasks[task_id]
             
             # تنظيف الكائنات المرتبطة
             if task_id in self.task_threads:
@@ -519,23 +471,51 @@ class PostingService:
             
             # حفظ الحالة
             self.save_active_tasks()
-            return True
-        return False
+            return True, f"تم إيقاف وحذف المهمة بنجاح (الحالة السابقة: {task_status})"
+        return False, "المهمة غير موجودة أو ليست قيد التشغيل"
     
     def stop_posting_task(self, task_id):
-        """إيقاف وحذف مهمة نشر قيد التشغيل"""
+        """إيقاف وحذف مهمة نشر قيد التشغيل مع انتظار انتهاء الخيط"""
         with self.tasks_lock:
-            if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
-                logger.info(f"محاولة إيقاف وحذف المهمة {task_id}")
+            if task_id in self.active_tasks:
+                # حفظ حالة المهمة قبل الحذف للإرجاع
+                task_status = self.active_tasks[task_id].get("status", "unknown")
                 
-                # إشارة للخيط بالتوقف
+                if task_status == "running":
+                    logger.info(f"محاولة إيقاف وحذف المهمة {task_id}")
+                    
+                    # إشارة للخيط بالتوقف
+                    if task_id in self.task_events:
+                        self.task_events[task_id].set()
+                    
+                    # انتظار انتهاء الخيط (مع مهلة زمنية)
+                    thread = self.task_threads.get(task_id)
+                    if thread and thread.is_alive():
+                        logger.info(f"انتظار انتهاء خيط المهمة {task_id}...")
+                    
+                    # تحرير القفل أثناء الانتظار لتجنب الانسداد
+                    self.tasks_lock.release()
+                    try:
+                        if thread and thread.is_alive():
+                            thread.join(timeout=5.0)  # انتظار 5 ثوانٍ كحد أقصى
+                            
+                            # التحقق مما إذا كان الخيط لا يزال حياً بعد المهلة
+                            if thread.is_alive():
+                                logger.warning(f"لم ينتهِ خيط المهمة {task_id} خلال المهلة المحددة. سيتم المتابعة بالحذف.")
+                    finally:
+                        # إعادة اكتساب القفل
+                        self.tasks_lock.acquire()
+                else:
+                    logger.info(f"المهمة {task_id} ليست قيد التشغيل (الحالة: {task_status})")
+                
+                # حذف المهمة من القائمة النشطة
+                if task_id in self.active_tasks:
+                    del self.active_tasks[task_id]
+                
+                # تنظيف الكائنات المرتبطة
                 if task_id in self.task_events:
                     self.task_events[task_id].set()
                 
-                # حذف المهمة من القائمة النشطة
-                del self.active_tasks[task_id]
-                
-                # تنظيف الكائنات المرتبطة
                 if task_id in self.task_threads:
                     del self.task_threads[task_id]
                 
@@ -547,28 +527,7 @@ class PostingService:
                     logger.warning(f"فشل حفظ حالة المهام بعد حذف المهمة {task_id}")
                 
                 logger.info(f"تم إيقاف وحذف المهمة {task_id}.")
-                return True, "تم إيقاف وحذف المهمة بنجاح."
-            elif task_id in self.active_tasks:
-                logger.info(f"المهمة {task_id} ليست قيد التشغيل (الحالة: {self.active_tasks[task_id].get('status')})")
-                
-                # حذف المهمة حتى لو لم تكن قيد التشغيل
-                del self.active_tasks[task_id]
-                
-                # تنظيف الكائنات المرتبطة
-                if task_id in self.task_events:
-                    self.task_events[task_id].set()
-                
-                if task_id in self.task_threads:
-                    del self.task_threads[task_id]
-                
-                # حفظ الحالة بعد حذف المهمة
-                save_result = self.save_active_tasks()
-                if save_result:
-                    logger.info(f"تم حفظ حالة المهام بعد حذف المهمة {task_id}")
-                else:
-                    logger.warning(f"فشل حفظ حالة المهام بعد حذف المهمة {task_id}")
-                
-                return True, f"تم حذف المهمة بنجاح (الحالة السابقة: {self.active_tasks[task_id].get('status')})"
+                return True, f"تم إيقاف وحذف المهمة بنجاح (الحالة السابقة: {task_status})"
             else:
                 logger.info(f"المهمة {task_id} غير موجودة")
                 return False, "المهمة غير موجودة"
@@ -599,16 +558,38 @@ class PostingService:
         return tasks_status
     
     def delete_task(self, task_id):
-        """حذف مهمة من قائمة المهام النشطة"""
+        """حذف مهمة من قائمة المهام النشطة مع انتظار انتهاء الخيط"""
         with self.tasks_lock:
             if task_id in self.active_tasks:
+                # حفظ حالة المهمة قبل الحذف للإرجاع
+                task_status = self.active_tasks[task_id].get("status", "unknown")
+                
                 # إيقاف المهمة أولاً إذا كانت قيد التشغيل
-                if self.active_tasks[task_id].get("status") == "running":
+                if task_status == "running":
                     if task_id in self.task_events:
                         self.task_events[task_id].set()
                 
+                # انتظار انتهاء الخيط (مع مهلة زمنية)
+                thread = self.task_threads.get(task_id)
+                if thread and thread.is_alive():
+                    logger.info(f"انتظار انتهاء خيط المهمة {task_id}...")
+                
+                # تحرير القفل أثناء الانتظار لتجنب الانسداد
+                self.tasks_lock.release()
+                try:
+                    if thread and thread.is_alive():
+                        thread.join(timeout=5.0)  # انتظار 5 ثوانٍ كحد أقصى
+                        
+                        # التحقق مما إذا كان الخيط لا يزال حياً بعد المهلة
+                        if thread.is_alive():
+                            logger.warning(f"لم ينتهِ خيط المهمة {task_id} خلال المهلة المحددة. سيتم المتابعة بالحذف.")
+                finally:
+                    # إعادة اكتساب القفل
+                    self.tasks_lock.acquire()
+                
                 # حذف المهمة
-                del self.active_tasks[task_id]
+                if task_id in self.active_tasks:
+                    del self.active_tasks[task_id]
                 
                 # تنظيف الكائنات المرتبطة
                 if task_id in self.task_events:
@@ -626,13 +607,13 @@ class PostingService:
                     logger.warning(f"فشل حفظ حالة المهام بعد حذف المهمة {task_id}")
                 
                 logger.info(f"تم حذف المهمة {task_id}.")
-                return True, "تم حذف المهمة بنجاح."
+                return True, f"تم حذف المهمة بنجاح (الحالة السابقة: {task_status})"
             else:
                 logger.info(f"المهمة {task_id} غير موجودة للحذف")
                 return False, "المهمة غير موجودة"
     
     def delete_all_user_tasks(self, user_id):
-        """حذف جميع مهام المستخدم"""
+        """حذف جميع مهام المستخدم مع انتظار انتهاء الخيوط"""
         tasks_deleted = 0
         
         with self.tasks_lock:
@@ -646,9 +627,25 @@ class PostingService:
                 if self.active_tasks[task_id].get("status") == "running":
                     if task_id in self.task_events:
                         self.task_events[task_id].set()
-                
+            
+            # تحرير القفل أثناء الانتظار لتجنب الانسداد
+            self.tasks_lock.release()
+            try:
+                # انتظار انتهاء جميع الخيوط (مع مهلة زمنية)
+                for task_id in user_task_ids:
+                    thread = self.task_threads.get(task_id)
+                    if thread and thread.is_alive():
+                        logger.info(f"انتظار انتهاء خيط المهمة {task_id}...")
+                        thread.join(timeout=2.0)  # انتظار 2 ثانية كحد أقصى لكل خيط
+            finally:
+                # إعادة اكتساب القفل
+                self.tasks_lock.acquire()
+            
+            # حذف المهام بعد انتظار الخيوط
+            for task_id in user_task_ids:
                 # حذف المهمة
-                del self.active_tasks[task_id]
+                if task_id in self.active_tasks:
+                    del self.active_tasks[task_id]
                 
                 # تنظيف الكائنات المرتبطة
                 if task_id in self.task_events:
@@ -672,7 +669,7 @@ class PostingService:
         return tasks_deleted, f"تم حذف {tasks_deleted} مهمة بنجاح."
     
     def stop_all_user_tasks(self, user_id):
-        """إيقاف وحذف جميع مهام النشر النشطة لمستخدم محدد"""
+        """إيقاف وحذف جميع مهام النشر النشطة لمستخدم محدد مع انتظار انتهاء الخيوط"""
         stopped_count = 0
         
         with self.tasks_lock:
@@ -680,14 +677,30 @@ class PostingService:
             user_task_ids = [task_id for task_id, task_data in self.active_tasks.items() 
                             if task_data.get("user_id") == user_id and task_data.get("status") == "running"]
             
-            # إيقاف وحذف كل مهمة
+            # إيقاف كل مهمة
             for task_id in user_task_ids:
                 # إشارة للخيط بالتوقف
                 if task_id in self.task_events:
                     self.task_events[task_id].set()
-                
+            
+            # تحرير القفل أثناء الانتظار لتجنب الانسداد
+            self.tasks_lock.release()
+            try:
+                # انتظار انتهاء جميع الخيوط (مع مهلة زمنية)
+                for task_id in user_task_ids:
+                    thread = self.task_threads.get(task_id)
+                    if thread and thread.is_alive():
+                        logger.info(f"انتظار انتهاء خيط المهمة {task_id}...")
+                        thread.join(timeout=2.0)  # انتظار 2 ثانية كحد أقصى لكل خيط
+            finally:
+                # إعادة اكتساب القفل
+                self.tasks_lock.acquire()
+            
+            # حذف المهام بعد انتظار الخيوط
+            for task_id in user_task_ids:
                 # حذف المهمة
-                del self.active_tasks[task_id]
+                if task_id in self.active_tasks:
+                    del self.active_tasks[task_id]
                 
                 # تنظيف الكائنات المرتبطة
                 if task_id in self.task_threads:
@@ -804,6 +817,18 @@ class PostingService:
             for task_id in list(self.active_tasks.keys()):  # التكرار على نسخة من المفاتيح
                 if task_id in self.task_events:
                     self.task_events[task_id].set()  # إشارة للخيط بالتوقف
+            
+            # تحرير القفل أثناء الانتظار لتجنب الانسداد
+            self.tasks_lock.release()
+            try:
+                # انتظار انتهاء جميع الخيوط (مع مهلة زمنية)
+                for task_id, thread in list(self.task_threads.items()):
+                    if thread and thread.is_alive():
+                        logger.info(f"انتظار انتهاء خيط المهمة {task_id}...")
+                        thread.join(timeout=1.0)  # انتظار 1 ثانية كحد أقصى لكل خيط
+            finally:
+                # إعادة اكتساب القفل
+                self.tasks_lock.acquire()
             
             self.active_tasks.clear()
             self.task_threads.clear()  # مسح مراجع الخيوط
