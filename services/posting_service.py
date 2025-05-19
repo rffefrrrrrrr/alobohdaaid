@@ -5,7 +5,7 @@ import asyncio
 import time
 import os
 import json
-import sqlite3 # Keep for other DB operations if any, or remove if Database class handles all
+# import sqlite3 # Removed database dependency, using JSON only
 import atexit # Added import
 from datetime import datetime, timedelta
 from telethon import TelegramClient
@@ -14,7 +14,7 @@ from telethon.errors import (
     ChatAdminRequiredError, ChannelPrivateError, 
     ChatWriteForbiddenError, UserBannedInChannelError
 )
-from database.db import Database # Assuming this handles non-posting related DB interactions
+# from database.db import Database # Removed database dependency, using JSON only
 from posting_persistence import should_restore_tasks, mark_shutdown # Import persistence functions
 
 class PostingService:
@@ -23,40 +23,13 @@ class PostingService:
         # Set up logging
         self.logger = logging.getLogger(__name__)
 
-        # Initialize database (for non-posting tasks, e.g., users, groups, messages, status_updates)
-        try:
-            self.db = Database()
-            self.users_collection = self.db.get_collection("users")
-            self.groups_collection = self.db.get_collection("groups")
-            self.messages_collection = self.db.get_collection("messages")
-            # self.active_tasks_collection = self.db.get_collection("active_tasks") # MODIFIED: Removed, using JSON now
-            self.status_updates_collection = self.db.get_collection("status_updates")
-
-            # Create fallback collections if database initialization failed
-            if self.users_collection is None:
-                self.logger.warning("Users collection not available, using fallback")
-                self.users_collection = {}
-            if self.groups_collection is None:
-                self.logger.warning("Groups collection not available, using fallback")
-                self.groups_collection = {}
-            if self.messages_collection is None:
-                self.logger.warning("Messages collection not available, using fallback")
-                self.messages_collection = {}
-            # Fallback for active_tasks_collection removed
-            if self.status_updates_collection is None: # Added fallback for status_updates
-                self.logger.warning("Status updates collection not available, using fallback")
-                self.status_updates_collection = {}
-
-            # Check database schema (ensure it doesn't try to create active_tasks table)
-            self.check_database_schema() # This function is currently pass, so it's fine.
-            self.logger.info("Database schema check completed for non-posting tables.")
-        except Exception as e:
-            self.logger.error(f"Error initializing database: {str(e)}")
-            self.db = None # Keep this for other collections
-            self.users_collection = {}
-            self.groups_collection = {}
-            self.messages_collection = {}
-            self.status_updates_collection = {} # Fallback for status_updates if needed
+        # Initialize in-memory collections for tasks (JSON-only approach)
+        self.users_collection = {}
+        self.groups_collection = {}
+        self.messages_collection = {}
+        self.status_updates_collection = {}
+        
+        self.logger.info("Using JSON-only approach for task management, database disabled.")
 
         # Define path for JSON storage of active tasks
         self.data_dir = 'data'
@@ -94,8 +67,8 @@ class PostingService:
         self.start_watchdog_timer() # Start the watchdog timer
 
     def check_database_schema(self):
-        """Check and create database schema if needed (for non-posting tables)"""
-        # This method was already pass, so no changes needed here regarding active_tasks table.
+        """Method kept for compatibility but disabled as we're using JSON only"""
+        self.logger.info("Database schema check skipped - using JSON only")
         pass
 
     def restore_active_tasks(self):
@@ -347,9 +320,9 @@ class PostingService:
             return False, "UnknownError"
 
     def _execute_task(self, task_id, user_id):
-        """Execute a posting task (runs in a thread)"""
-        # Retrieve user session string from database (assuming this part remains)
-        user_data = self.users_collection.find_one({"user_id": user_id})
+        """Execute a posting task (simplified for JSON-only approach)"""
+        # Simplified user data retrieval for JSON-only approach
+        user_data = self.users_collection.get(user_id, {})
         if not user_data or "session_string" not in user_data:
             self.logger.error(f"No session string found for user {user_id} for task {task_id}")
             with self.tasks_lock:
@@ -505,10 +478,10 @@ class PostingService:
         loop.run_until_complete(task_coroutine())
 
     def permanently_delete_task(self, task_id):
-        """حذف نهائي لمهمة النشر من جميع مصادر التخزين"""
+        """حذف نهائي لمهمة النشر من ملف JSON فقط"""
         with self.tasks_lock:
             if task_id in self.active_tasks:
-                self.logger.info(f"Permanently deleting task {task_id} from all storage sources")
+                self.logger.info(f"Permanently deleting task {task_id} from JSON storage")
                 
                 # حفظ معرف المستخدم قبل حذف المهمة
                 user_id = self.active_tasks[task_id].get("user_id")
@@ -530,56 +503,14 @@ class PostingService:
                 # حذف المهمة من ملف JSON مباشرة
                 self._remove_task_from_json(task_id, user_id)
                 
-                # حذف المهمة من قاعدة البيانات SQLite
-                self._remove_task_from_db(task_id, user_id)
-                
-                # حذف من أي مصادر تخزين أخرى
-                try:
-                    # حذف من ملفات JSON الاحتياطية القديمة
-                    old_backup_files = [
-                        os.path.join('services', 'active_tasks.json'),
-                        os.path.join('data', 'active_tasks_backup.json')
-                    ]
-                    
-                    for backup_file in old_backup_files:
-                        if os.path.exists(backup_file):
-                            try:
-                                with open(backup_file, 'r') as f:
-                                    backup_tasks = json.load(f)
-                                
-                                # حذف المهمة المحددة
-                                if task_id in backup_tasks:
-                                    del backup_tasks[task_id]
-                                
-                                # حذف جميع مهام المستخدم
-                                if user_id:
-                                    tasks_to_remove = []
-                                    for tid, task_data in backup_tasks.items():
-                                        if task_data.get('user_id') == user_id:
-                                            tasks_to_remove.append(tid)
-                                    
-                                    for tid in tasks_to_remove:
-                                        if tid in backup_tasks:
-                                            del backup_tasks[tid]
-                                
-                                # حفظ الملف المحدث
-                                with open(backup_file, 'w') as f:
-                                    json.dump(backup_tasks, f, indent=4)
-                                
-                                self.logger.info(f"Removed task {task_id} from backup file {backup_file}")
-                            except Exception as e:
-                                self.logger.error(f"Error removing task from backup file {backup_file}: {str(e)}")
-                except Exception as e:
-                    self.logger.error(f"Error cleaning up additional storage sources: {str(e)}")
-                
                 self.save_active_tasks() # حفظ الحالة النهائية
-                self.logger.info(f"Task {task_id} permanently deleted from all storage sources")
-                return True, "Task permanently deleted from all storage sources"
+                self.logger.info(f"Task {task_id} permanently deleted from JSON storage")
+                return True, "Task permanently deleted from JSON storage"
             else:
                 return False, f"Task {task_id} not found"
 
     def stop_posting_task(self, task_id):
-        """Stop and delete a running posting task"""
+        """Stop and delete a running posting task - JSON only version"""
         with self.tasks_lock:
             if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
                 self.logger.info(f"Attempting to stop and delete task {task_id}")
@@ -609,12 +540,9 @@ class PostingService:
                 # حذف المهمة من ملف JSON مباشرة
                 self._remove_task_from_json(task_id, user_id)
                 
-                # حذف المهمة من قاعدة البيانات SQLite
-                self._remove_task_from_db(task_id, user_id)
-                
                 self.save_active_tasks() # Save state without the deleted task
-                self.logger.info(f"Task {task_id} stopped and deleted.")
-                return True, "Task stopped and deleted successfully."
+                self.logger.info(f"Task {task_id} stopped and deleted from JSON.")
+                return True, "Task stopped and deleted successfully from JSON."
             elif task_id in self.active_tasks:
                 # حتى إذا كانت المهمة غير نشطة، نحذفها من الذاكرة وملف JSON
                 self.logger.info(f"Task {task_id} is not running, but will be deleted anyway.")
@@ -634,12 +562,9 @@ class PostingService:
                 # حذف المهمة من ملف JSON مباشرة
                 self._remove_task_from_json(task_id, user_id)
                 
-                # حذف المهمة من قاعدة البيانات SQLite
-                self._remove_task_from_db(task_id, user_id)
-                
                 self.save_active_tasks() # حفظ الحالة بدون المهمة المحذوفة
                 
-                return True, f"Task {task_id} deleted successfully."
+                return True, f"Task {task_id} deleted successfully from JSON."
             else:
                 return False, f"Task {task_id} not found."
 
@@ -679,25 +604,10 @@ class PostingService:
             self.logger.error(f"Error removing task {task_id} from JSON file: {str(e)}")
             
     def _remove_task_from_db(self, task_id, user_id=None):
-        """حذف مهمة محددة من قاعدة البيانات SQLite"""
-        self.logger.info(f"Removing task {task_id} from SQLite database")
-        try:
-            # حذف من قاعدة البيانات SQLite إذا كانت موجودة
-            db_path = os.path.join('data', 'telegram_bot.db')
-            if os.path.exists(db_path):
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                
-                # حذف المهمة المحددة
-                cursor.execute("DELETE FROM active_tasks WHERE task_id = ?", (task_id,))
-                deleted_count = cursor.rowcount
-                self.logger.info(f"Removed {deleted_count} entries for task {task_id} from database")
-                
-                # حذف جميع مهام المستخدم إذا تم تحديد معرف المستخدم
-                if user_id:
-                    cursor.execute("DELETE FROM active_tasks WHERE user_id = ?", (user_id,))
-                    deleted_user_count = cursor.rowcount
-                    self.logger.info(f"Removed {deleted_user_count} entries for user {user_id} from database")
+        """حذف مهمة محددة من قاعدة البيانات SQLite - تم تعطيل هذه الدالة لاستخدام JSON فقط"""
+        self.logger.info(f"Database operations disabled, using JSON only for task {task_id}")
+        # تم تعطيل عمليات قاعدة البيانات، نستخدم JSON فقط
+        pass
                 
                 # حفظ التغييرات
                 conn.commit()
