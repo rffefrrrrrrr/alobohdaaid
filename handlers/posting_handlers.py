@@ -34,9 +34,6 @@ class PostingHandlers:
 
         # تحسين: إضافة قائمة لتخزين المجموعات المحددة للمستخدمين
         self.user_selected_groups = {}
-        
-        # إضافة قاموس لتتبع حالة تأكيد النشر لمنع النشر المزدوج
-        self.confirmation_locks = {}
 
         # تسجيل المعالجات مباشرة
         self.register_handlers(application)
@@ -383,7 +380,7 @@ class PostingHandlers:
             return ConversationHandler.END
 
     async def handle_confirm_groups(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle confirm groups button"""
+        """Handle group selection confirmation"""
         try:
             query = update.callback_query
             await query.answer()
@@ -391,12 +388,20 @@ class PostingHandlers:
             # Get user ID
             user_id = update.effective_user.id
 
-            # Get selected groups
-            selected_groups = context.user_data.get('selected_groups', [])
+            # تحسين: استخدام قائمة المجموعات المحددة على مستوى الفئة
+            if user_id not in self.user_selected_groups:
+                self.user_selected_groups[user_id] = []
 
+            # Get selected groups from class-level storage
+            selected_groups = self.user_selected_groups[user_id]
+
+            # تحويل جميع معرفات المجموعات إلى نصوص لضمان المقارنة الصحيحة
+            selected_groups = [str(g_id) for g_id in selected_groups]
+
+            # Check if any groups are selected
             if not selected_groups:
                 await query.edit_message_text(
-                    "⚠️ *لم تقم باختيار أي مجموعات. يرجى اختيار مجموعة واحدة على الأقل.*",
+                    "⚠️ *يرجى اختيار مجموعة واحدة على الأقل.*",
                     parse_mode="Markdown"
                 )
                 return self.SELECT_GROUP
@@ -404,7 +409,7 @@ class PostingHandlers:
             # Get available groups
             available_groups = context.user_data.get('available_groups', [])
 
-            # Get selected group objects
+            # Create list of selected group objects
             selected_group_objects = []
             for group in available_groups:
                 group_id = str(group.get('group_id'))
@@ -417,7 +422,7 @@ class PostingHandlers:
             # Update message
             await query.edit_message_text(
                 f"✅ *تم اختيار {len(selected_groups)} مجموعة.*\n\n"
-                "📝 *يرجى إدخال الرسالة التي ترغب في نشرها:*",
+                f"📝 *يرجى إدخال الرسالة التي ترغب في نشرها:*",
                 parse_mode="Markdown"
             )
 
@@ -428,79 +433,43 @@ class PostingHandlers:
             return ConversationHandler.END
 
     async def handle_text_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle text input in SELECT_GROUP state"""
-        try:
-            # Get user ID
-            user_id = update.effective_user.id
-
-            # Get text
-            text = update.message.text
-
-            # Check if text is a group name
-            available_groups = context.user_data.get('available_groups', [])
-            for group in available_groups:
-                group_name = group.get('title', '').lower()
-                if text.lower() in group_name:
-                    # Found a matching group, select it
-                    group_id = str(group.get('group_id'))
-                    
-                    # Get selected groups
-                    if user_id not in self.user_selected_groups:
-                        self.user_selected_groups[user_id] = []
-                    selected_groups = self.user_selected_groups[user_id]
-                    
-                    # Toggle group selection
-                    if group_id in selected_groups:
-                        selected_groups.remove(group_id)
-                        await update.message.reply_text(
-                            f"❌ *تم إلغاء تحديد المجموعة:* {group_name}",
-                            parse_mode="Markdown"
-                        )
-                    else:
-                        selected_groups.append(group_id)
-                        await update.message.reply_text(
-                            f"✅ *تم تحديد المجموعة:* {group_name}",
-                            parse_mode="Markdown"
-                        )
-                    
-                    # Update selected groups in both class storage and context
-                    self.user_selected_groups[user_id] = selected_groups
-                    context.user_data['selected_groups'] = selected_groups.copy()
-                    
-                    return self.SELECT_GROUP
-
-            # No matching group found, show error message
-            await update.message.reply_text(
-                "⚠️ *لم يتم العثور على مجموعة مطابقة. يرجى استخدام الأزرار لاختيار المجموعات.*",
-                parse_mode="Markdown"
-            )
-            return self.SELECT_GROUP
-        except Exception as e:
-            self.logger.error(f"Error in handle_text_input: {str(e)}")
-            await update.message.reply_text("❌ *حدث خطأ أثناء معالجة النص. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
-            return ConversationHandler.END
+        """Handle text input"""
+        # This is a fallback handler for text input in SELECT_GROUP state
+        await update.message.reply_text(
+            "⚠️ *يرجى استخدام الأزرار لاختيار المجموعات.*",
+            parse_mode="Markdown"
+        )
+        return self.SELECT_GROUP
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle message input"""
         try:
-            # Get message
-            message = update.message.text
+            # Get message text
+            message_text = update.message.text
+
+            # Check if message is empty
+            if not message_text or message_text.strip() == "":
+                await update.message.reply_text(
+                    "⚠️ *الرسالة لا يمكن أن تكون فارغة. يرجى إدخال رسالة صالحة.*",
+                    parse_mode="Markdown"
+                )
+                return self.ENTER_MESSAGE
 
             # Store message in context
-            context.user_data['message'] = message
+            context.user_data['message'] = message_text
 
             # Create keyboard
             keyboard = [
-                [InlineKeyboardButton("⏱ الآن", callback_data="timing_type:now")],
-                [InlineKeyboardButton("🕒 وقت محدد", callback_data="timing_type:exact")],
-                [InlineKeyboardButton("⏳ تأخير بين الرسائل", callback_data="timing_type:delay")],
+                [InlineKeyboardButton("⏱ نشر تلقائي", callback_data="timing_type:delay")],
+                [InlineKeyboardButton("🕒 نشر في وقت محدد", callback_data="timing_type:exact")],
+                [InlineKeyboardButton("🚀 نشر الآن", callback_data="timing_type:now")],
                 [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             # Send message
             await update.message.reply_text(
-                "⏰ *يرجى اختيار توقيت النشر:*",
+                "⏰ *يرجى اختيار نوع التوقيت:*",
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -520,10 +489,13 @@ class PostingHandlers:
             # Get timing type
             timing_type = query.data.split(':')[1]
 
+            # Store timing type in context
+            context.user_data['timing_type'] = timing_type
+
             if timing_type == "exact":
                 # Exact time
                 await query.edit_message_text(
-                    "🕒 *يرجى إدخال الوقت المحدد بالتنسيق التالي:*\n\n"
+                    "🕒 *يرجى إدخال الوقت المحدد للنشر بالتنسيق التالي:*\n\n"
                     "YYYY-MM-DD HH:MM\n\n"
                     "مثال: 2023-01-01 12:00",
                     parse_mode="Markdown"
@@ -593,7 +565,6 @@ class PostingHandlers:
                 # Store exact time in context
                 context.user_data['timing'] = "exact"
                 context.user_data['exact_time'] = exact_time
-                context.user_data['exact_time_dt'] = exact_time_dt  # Store datetime object
 
                 # Create confirmation message
                 selected_groups = context.user_data.get('selected_group_objects', [])
@@ -702,39 +673,12 @@ class PostingHandlers:
 
             # Get user ID
             user_id = update.effective_user.id
-            
-            # تحسين آلية قفل التأكيد لمنع النشر المزدوج
-            # الحصول على بيانات النشر من السياق
-            selected_groups = context.user_data.get('selected_group_objects', [])
-            message = context.user_data.get('message', '')
-            
-            # إنشاء مفتاح قفل أكثر تحديدًا يتضمن معلومات المحتوى
-            group_ids_str = ",".join(sorted([str(group.get('group_id', '')) for group in selected_groups]))
-            content_hash = f"{message[:20]}_{group_ids_str[:50]}"  # استخدام جزء من المحتوى لتجنب المفاتيح الطويلة جدًا
-            confirmation_key = f"{user_id}_{query.message.message_id}_{hash(content_hash) % 10000}"
-            
-            # تسجيل محاولة التأكيد للتشخيص
-            self.logger.info(f"Processing confirmation with key: {confirmation_key}")
-            
-            if confirmation_key in self.confirmation_locks:
-                self.logger.warning(f"Duplicate confirmation detected for user {user_id}, message {query.message.message_id}, content hash: {hash(content_hash) % 10000}")
-                await query.edit_message_text(
-                    "⚠️ *تم معالجة هذا التأكيد بالفعل. يرجى التحقق من حالة النشر باستخدام /status.*",
-                    parse_mode="Markdown"
-                )
-                return ConversationHandler.END
-            
-            # وضع قفل على هذا التأكيد لمنع المعالجة المزدوجة
-            self.confirmation_locks[confirmation_key] = True
-            
-            # تسجيل وقت القفل للتشخيص
-            lock_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-            self.logger.info(f"Confirmation lock acquired at {lock_time} for key: {confirmation_key}")
 
             # Get posting data from context
+            selected_groups = context.user_data.get('selected_group_objects', [])
+            message = context.user_data.get('message', '')
             timing = context.user_data.get('timing', 'now')
             exact_time = context.user_data.get('exact_time', None)
-            exact_time_dt = context.user_data.get('exact_time_dt', None)  # Get datetime object
             delay_seconds = context.user_data.get('delay_seconds', 0)
 
             # تصحيح: تحويل معرفات المجموعات إلى قائمة
@@ -753,10 +697,6 @@ class PostingHandlers:
                 delay_seconds=delay_seconds if timing == "delay" else None,
                 is_recurring=is_recurring
             )
-            
-            # تسجيل نتيجة إنشاء المهمة للتشخيص
-            self.logger.info(f"Task creation result for {confirmation_key}: task_id={task_id}, success={success}")
-            
             result_message = "تم بدء النشر بنجاح." if success else "فشل بدء النشر."
             if success:
                 # Update message with success
@@ -782,18 +722,6 @@ class PostingHandlers:
             except:
                 pass
             return ConversationHandler.END
-        finally:
-            # تنظيف القفل بعد فترة زمنية (120 ثانية) لتجنب تراكم القفل
-            # زيادة المدة من 30 إلى 120 ثانية لتقليل فرص التكرار
-            confirmation_key = f"{user_id}_{query.message.message_id}_{hash(content_hash) % 10000}"
-            
-            def cleanup_lock():
-                if confirmation_key in self.confirmation_locks:
-                    del self.confirmation_locks[confirmation_key]
-                    self.logger.debug(f"Cleaned up confirmation lock for {confirmation_key}")
-            
-            # جدولة تنظيف القفل بعد 120 ثانية
-            threading.Timer(120.0, cleanup_lock).start()
 
     async def handle_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle cancel button"""
