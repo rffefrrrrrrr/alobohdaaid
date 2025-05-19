@@ -558,6 +558,22 @@ class PostingService:
             else:
                 return self.active_tasks.copy()
     
+    def get_all_tasks_status(self, user_id=None):
+        """الحصول على حالة جميع المهام، اختياريًا تصفية حسب معرف المستخدم"""
+        tasks_status = []
+        with self.tasks_lock:
+            for task_id, task_data in self.active_tasks.items():
+                if user_id is None or task_data.get("user_id") == user_id:
+                    # إنشاء نسخة وتحويل كائنات datetime إلى سلاسل للعرض/استجابة API
+                    task_display = task_data.copy()
+                    if isinstance(task_display.get("start_time"), datetime):
+                        task_display["start_time"] = task_display["start_time"].isoformat()
+                    if isinstance(task_display.get("last_activity"), datetime):
+                        task_display["last_activity"] = task_display["last_activity"].isoformat()
+                    task_display["task_id"] = task_id  # التأكد من أن task_id جزء من القاموس المرجع
+                    tasks_status.append(task_display)
+        return tasks_status
+    
     def delete_task(self, task_id):
         """حذف مهمة من قائمة المهام النشطة"""
         with self.tasks_lock:
@@ -630,6 +646,38 @@ class PostingService:
         
         logger.info(f"تم حذف {tasks_deleted} مهمة للمستخدم {user_id}")
         return tasks_deleted, f"تم حذف {tasks_deleted} مهمة بنجاح."
+    
+    def stop_all_user_tasks(self, user_id):
+        """إيقاف جميع مهام النشر النشطة لمستخدم محدد"""
+        stopped_count = 0
+        
+        with self.tasks_lock:
+            # جمع معرفات المهام للمستخدم
+            user_task_ids = [task_id for task_id, task_data in self.active_tasks.items() 
+                            if task_data.get("user_id") == user_id and task_data.get("status") == "running"]
+            
+            # إيقاف كل مهمة
+            for task_id in user_task_ids:
+                # إشارة للخيط بالتوقف
+                if task_id in self.task_events:
+                    self.task_events[task_id].set()
+                
+                # تحديث حالة المهمة إلى "متوقفة"
+                self.active_tasks[task_id]["status"] = "stopped"
+                self.active_tasks[task_id]["last_activity"] = datetime.now()
+                
+                stopped_count += 1
+            
+            # حفظ الحالة بعد إيقاف المهام
+            if stopped_count > 0:
+                save_result = self.save_active_tasks()
+                if save_result:
+                    logger.info(f"تم حفظ حالة المهام بعد إيقاف {stopped_count} مهمة للمستخدم {user_id}")
+                else:
+                    logger.warning(f"فشل حفظ حالة المهام بعد إيقاف {stopped_count} مهمة للمستخدم {user_id}")
+        
+        logger.info(f"تم إيقاف {stopped_count} مهمة للمستخدم {user_id}")
+        return stopped_count
     
     def check_and_restart_failed_tasks(self):
         """التحقق من المهام الفاشلة وإعادة تشغيلها"""
