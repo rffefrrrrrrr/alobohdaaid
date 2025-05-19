@@ -16,47 +16,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def on_startup():
-    # === بداية التسجيل التشخيصي المضاف ===
-    logger.info("=== بدء تشخيص دالة on_startup ===")
-    logger.info(f"وقت استدعاء on_startup: {datetime.now().isoformat()}")
-    
-    # التحقق من وجود علامة الإيقاف
-    data_dir = 'data'
-    shutdown_marker_file = os.path.join(data_dir, 'bot_shutdown_marker')
-    if os.path.exists(shutdown_marker_file):
-        logger.info(f"⚠️ علامة الإيقاف موجودة: {shutdown_marker_file}")
-        # حذف علامة الإيقاف
-        try:
-            os.remove(shutdown_marker_file)
-            logger.info(f"✅ تم حذف علامة الإيقاف: {shutdown_marker_file}")
-        except Exception as e:
-            logger.error(f"❌ خطأ في حذف علامة الإيقاف: {str(e)}")
-    else:
-        logger.info(f"✅ علامة الإيقاف غير موجودة: {shutdown_marker_file}")
-    
-    # التحقق من استدعاء should_restore_tasks
-    try:
-        from posting_persistence import should_restore_tasks
-        restore_result = should_restore_tasks()
-        logger.info(f"نتيجة should_restore_tasks: {restore_result}")
-    except Exception as e:
-        logger.error(f"❌ خطأ في استدعاء should_restore_tasks: {str(e)}")
-    # === نهاية التسجيل التشخيصي المضاف ===
-
     """
     يتم استدعاء هذه الدالة عند بدء تشغيل البوت
     """
     logger.info("Bot is starting up...")
-    
-    # حذف علامة الإيقاف إذا كانت موجودة لضمان استئناف مهام النشر
-    data_dir = 'data'
-    shutdown_marker_file = os.path.join(data_dir, 'bot_shutdown_marker')
-    if os.path.exists(shutdown_marker_file):
-        try:
-            os.remove(shutdown_marker_file)
-            logger.info(f"تم حذف علامة الإيقاف عند بدء التشغيل: {shutdown_marker_file}")
-        except Exception as e:
-            logger.error(f"خطأ في حذف علامة الإيقاف: {str(e)}")
     
     # وضع علامة على إعادة تشغيل البوت
     mark_restart()

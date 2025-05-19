@@ -3,22 +3,7 @@
 # Place your bot's code here (such as using Telethon, aiogram, etc.)
 
 # أضف هذا الكود في بداية الملف الرئيسي (bot.py أو main.py)
-from database.models 
-# استيراد ملف التشخيص لتتبع تسلسل الاستدعاءات
-try:
-    import diagnostic_hook
-    print("✅ تم استيراد ملف التشخيص بنجاح")
-except Exception as e:
-    print(f"❌ خطأ في استيراد ملف التشخيص: {str(e)}")
-
-import User # استيراد نماذج قاعدة البيانات لتتبع تسلسل الاستدعاءات
-try:
-    import diagnostic_hook
-    print("✅ تم استيراد ملف التشخيص بنجاح")
-except Exception as e:
-    print(f"❌ خطأ في استيراد ملف التشخيص: {str(e)}")
-
-import User
+from database.models import User
 from services.subscription_service import SubscriptionService
 
 # دالة لتعيين المستخدم كمسؤول
@@ -274,39 +259,6 @@ async def setup_commands(application):
 # --- END ADDED COMMAND SETUP FUNCTION ---
 
 def main():
-    # === بداية التسجيل التشخيصي المضاف ===
-    print("=== بدء تشخيص مشكلة النشر التلقائي ===")
-    print(f"وقت بدء التشغيل: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # التحقق من وجود علامة الإيقاف
-    shutdown_marker_file = os.path.join('data', 'bot_shutdown_marker')
-    if os.path.exists(shutdown_marker_file):
-        print(f"⚠️ علامة الإيقاف موجودة: {shutdown_marker_file}")
-    else:
-        print(f"✅ علامة الإيقاف غير موجودة: {shutdown_marker_file}")
-    
-    # التحقق من ملف المهام النشطة
-    active_tasks_file = os.path.join('data', 'active_posting.json')
-    if os.path.exists(active_tasks_file):
-        try:
-            with open(active_tasks_file, 'r', encoding='utf-8') as f:
-                tasks = json.load(f)
-            print(f"✅ ملف المهام النشطة موجود: {active_tasks_file}")
-            print(f"  - عدد المهام: {len(tasks)}")
-            
-            # تسجيل تفاصيل المهام
-            running_tasks = 0
-            for task_id, task_data in tasks.items():
-                if task_data.get('status') == 'running':
-                    running_tasks += 1
-            
-            print(f"  - عدد المهام في حالة تشغيل: {running_tasks}")
-        except Exception as e:
-            print(f"❌ خطأ في قراءة ملف المهام النشطة: {str(e)}")
-    else:
-        print(f"⚠️ ملف المهام النشطة غير موجود: {active_tasks_file}")
-    # === نهاية التسجيل التشخيصي المضاف ===
-
     """تشغيل البوت الرئيسي"""
     print("بدأ تشغيل البوت في:", time.strftime("%Y-%m-%d %H:%M:%S"))
     

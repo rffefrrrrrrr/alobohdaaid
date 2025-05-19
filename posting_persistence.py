@@ -146,18 +146,6 @@ def mark_restart():
     return persistence_manager.mark_bot_restart()
 
 def should_restore_tasks():
-    # === بداية التسجيل التشخيصي المضاف ===
-    logger.info("=== بدء تشخيص دالة should_restore_tasks ===")
-    logger.info(f"وقت استدعاء should_restore_tasks: {datetime.now().isoformat()}")
-    
-    # التحقق من وجود علامة الإيقاف
-    shutdown_marker_file = persistence_manager.shutdown_marker_file
-    if os.path.exists(shutdown_marker_file):
-        logger.info(f"⚠️ علامة الإيقاف موجودة: {shutdown_marker_file}")
-    else:
-        logger.info(f"✅ علامة الإيقاف غير موجودة: {shutdown_marker_file}")
-    # === نهاية التسجيل التشخيصي المضاف ===
-
     """
     تحديد ما إذا كان يجب استعادة مهام النشر عند بدء تشغيل البوت
     """
