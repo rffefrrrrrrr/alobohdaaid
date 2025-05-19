@@ -397,7 +397,6 @@ class PostingService:
         # التأكد من تحميل API_ID و API_HASH من user_data أو الرجوع إلى التكوين العام
         api_id = user_data.get("api_id")
         api_hash = user_data.get("api_hash")
-        
         if not api_id or not api_hash:
             logger.warning(f"لم يتم العثور على API ID/Hash في user_data للمستخدم {user_id}. الرجوع إلى التكوين العام.")
             try:
@@ -598,9 +597,8 @@ class PostingService:
                     
                     return
                 
-                # بدء حلقة الإرسال
-                logger.info(f"بدء حلقة الإرسال للمهمة {task_id} مع {len(group_ids)} مجموعة")
-                for group_id in group_ids:
+                # حلقة الإرسال
+                for i, group_id in enumerate(group_ids):
                     # التحقق من حدث التوقف قبل كل إرسال
                     if stop_event.is_set():
                         logger.info(f"تم إيقاف المهمة {task_id} أثناء حلقة الإرسال")
@@ -610,68 +608,81 @@ class PostingService:
                                 self.active_tasks[task_id]["status"] = "stopped"
                                 self.active_tasks[task_id]["last_activity"] = datetime.now()
                         
-                        # حفظ الحالة بعد إيقاف المهمة أثناء الإرسال
+                        # حفظ الحالة بعد إيقاف المهمة أثناء حلقة الإرسال
                         save_result = self.save_active_tasks()
                         if save_result:
-                            logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الإرسال")
+                            logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء حلقة الإرسال")
                         else:
-                            logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الإرسال")
+                            logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء حلقة الإرسال")
                         
                         break
                     
-                    try:
-                        # محاولة إرسال الرسالة إلى المجموعة
-                        logger.info(f"محاولة إرسال رسالة إلى المجموعة {group_id} للمهمة {task_id}")
+                    # التأخير بين الإرسال إذا تم تحديده
+                    if delay_seconds and i > 0:
+                        logger.info(f"انتظار {delay_seconds} ثانية قبل الإرسال التالي للمهمة {task_id}")
                         
-                        # تحويل معرف المجموعة إلى عدد صحيح إذا كان ذلك ممكناً
                         try:
-                            numeric_group_id = int(group_id)
-                            logger.info(f"تم تحويل معرف المجموعة {group_id} إلى عدد صحيح: {numeric_group_id}")
-                        except ValueError:
-                            numeric_group_id = group_id
-                            logger.info(f"استخدام معرف المجموعة كما هو (سلسلة): {group_id}")
-                        
-                        # محاولة الحصول على كيان المجموعة بعدة طرق
-                        entity = None
-                        try:
-                            # الطريقة 1: استخدام معرف المجموعة مباشرة
-                            entity = await client.get_entity(numeric_group_id)
-                            logger.info(f"تم الحصول على كيان المجموعة {group_id} باستخدام المعرف المباشر")
-                        except Exception as e1:
-                            logger.warning(f"فشل الحصول على كيان المجموعة {group_id} باستخدام المعرف المباشر: {str(e1)}")
+                            # استخدام asyncio.sleep بدلاً من asyncio.to_thread للتوافق مع Python 3.7
+                            delay_task = asyncio.create_task(asyncio.sleep(delay_seconds))
                             
-                            try:
-                                # الطريقة 2: إذا كان المعرف يبدأ بـ -100، حاول إزالته
-                                if str(group_id).startswith('-100'):
-                                    channel_id = int(str(group_id)[4:])
-                                    entity = await client.get_entity(channel_id)
-                                    logger.info(f"تم الحصول على كيان المجموعة {group_id} بعد إزالة -100")
-                            except Exception as e2:
-                                logger.warning(f"فشل الحصول على كيان المجموعة {group_id} بعد إزالة -100: {str(e2)}")
+                            # إنشاء مهمة للتحقق من حدث التوقف
+                            async def check_stop_event_delay():
+                                while not stop_event.is_set():
+                                    await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
+                                    if stop_event.is_set():
+                                        return True
+                                return True
+                            
+                            stop_check_task_delay = asyncio.create_task(check_stop_event_delay())
+                            
+                            # انتظار أي من المهمتين
+                            done, pending = await asyncio.wait(
+                                [delay_task, stop_check_task_delay],
+                                return_when=asyncio.FIRST_COMPLETED
+                            )
+                            
+                            # إلغاء المهام المعلقة
+                            for task in pending:
+                                task.cancel()
+                            
+                            if stop_event.is_set():
+                                logger.info(f"تم إيقاف المهمة {task_id} أثناء التأخير بين الإرسال")
                                 
-                                try:
-                                    # الطريقة 3: محاولة استخدام InputPeerChannel
-                                    if str(group_id).startswith('-100'):
-                                        channel_id = int(str(group_id)[4:])
-                                        entity = InputPeerChannel(channel_id=channel_id, access_hash=0)
-                                        logger.info(f"تم إنشاء InputPeerChannel للمجموعة {group_id}")
-                                except Exception as e3:
-                                    logger.warning(f"فشل إنشاء InputPeerChannel للمجموعة {group_id}: {str(e3)}")
-                                    
-                                    try:
-                                        # الطريقة 4: محاولة الانضمام إلى المجموعة إذا كانت معرفاً عاماً
-                                        if not str(group_id).startswith('-'):
-                                            entity = await client(JoinChannelRequest(group_id))
-                                            logger.info(f"تم الانضمام إلى المجموعة {group_id}")
-                                    except Exception as e4:
-                                        logger.warning(f"فشل الانضمام إلى المجموعة {group_id}: {str(e4)}")
+                                with self.tasks_lock:
+                                    if task_id in self.active_tasks:
+                                        self.active_tasks[task_id]["status"] = "stopped"
+                                        self.active_tasks[task_id]["last_activity"] = datetime.now()
+                                
+                                # حفظ الحالة بعد إيقاف المهمة أثناء التأخير
+                                save_result = self.save_active_tasks()
+                                if save_result:
+                                    logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء التأخير")
+                                else:
+                                    logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء التأخير")
+                                
+                                break
+                        except asyncio.CancelledError:
+                            # تم إلغاء المهمة
+                            logger.info(f"تم إلغاء مهمة التأخير للمهمة {task_id}")
+                            if stop_event.is_set():
+                                break
+                    
+                    # محاولة إرسال الرسالة إلى المجموعة
+                    try:
+                        logger.info(f"محاولة إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}")
                         
-                        if not entity:
-                            logger.error(f"فشل الحصول على كيان المجموعة {group_id} بجميع الطرق المتاحة")
-                            continue
+                        # محاولة الانضمام إلى المجموعة إذا كانت قناة عامة
+                        try:
+                            if group_id.startswith('@'):
+                                logger.info(f"محاولة الانضمام إلى القناة {group_id} للمهمة {task_id}")
+                                await client(JoinChannelRequest(group_id))
+                                logger.info(f"تم الانضمام إلى القناة {group_id} بنجاح للمهمة {task_id}")
+                        except Exception as join_error:
+                            logger.warning(f"خطأ في الانضمام إلى القناة {group_id} للمهمة {task_id}: {str(join_error)}")
+                            # استمر في المحاولة حتى لو فشل الانضمام
                         
-                        # محاولة إرسال الرسالة
-                        send_result = await client.send_message(entity, message)
+                        # إرسال الرسالة
+                        send_result = await client.send_message(group_id, message)
                         
                         if not send_result:
                             logger.warning(f"فشل إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}")
@@ -689,9 +700,6 @@ class PostingService:
                                 # زيادة العداد
                                 self.active_tasks[task_id]["message_count"] += 1
                                 self.active_tasks[task_id]["last_activity"] = datetime.now()
-                                
-                                # تسجيل للتصحيح
-                                logger.info(f"تم زيادة عداد الرسائل للمهمة {task_id} إلى {self.active_tasks[task_id]['message_count']}")
                             else:
                                 logger.warning(f"المهمة {task_id} لم تعد في حالة تشغيل، إلغاء تحديث العداد.")
                                 break
@@ -702,82 +710,28 @@ class PostingService:
                             logger.debug(f"تم حفظ حالة المهام بعد إرسال ناجح للمهمة {task_id}")
                         else:
                             logger.warning(f"فشل حفظ حالة المهام بعد إرسال ناجح للمهمة {task_id}")
-                        
-                        # التأخير بين الرسائل إذا تم تحديده
-                        if delay_seconds and delay_seconds > 0:
-                            logger.debug(f"المهمة {task_id} ستنتظر {delay_seconds} ثانية قبل الإرسال التالي")
-                            
-                            # انتظار المدة المحددة أو حتى يتم تعيين حدث التوقف
-                            try:
-                                # استخدام asyncio.sleep بدلاً من asyncio.to_thread للتوافق مع Python 3.7
-                                wait_task = asyncio.create_task(asyncio.sleep(delay_seconds))
-                                
-                                # إنشاء مهمة للتحقق من حدث التوقف
-                                async def check_stop_event():
-                                    while not stop_event.is_set():
-                                        await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
-                                        if stop_event.is_set():
-                                            return True
-                                    return True
-                                
-                                stop_check_task = asyncio.create_task(check_stop_event())
-                                
-                                # انتظار أي من المهمتين
-                                done, pending = await asyncio.wait(
-                                    [wait_task, stop_check_task],
-                                    return_when=asyncio.FIRST_COMPLETED
-                                )
-                                
-                                # إلغاء المهام المعلقة
-                                for task in pending:
-                                    task.cancel()
-                                
-                                if stop_event.is_set():
-                                    logger.info(f"تم إيقاف المهمة {task_id} أثناء التأخير بين الرسائل")
-                                    
-                                    with self.tasks_lock:
-                                        if task_id in self.active_tasks:
-                                            self.active_tasks[task_id]["status"] = "stopped"
-                                            self.active_tasks[task_id]["last_activity"] = datetime.now()
-                                    
-                                    # حفظ الحالة بعد إيقاف المهمة أثناء التأخير
-                                    save_result = self.save_active_tasks()
-                                    if save_result:
-                                        logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء التأخير")
-                                    else:
-                                        logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء التأخير")
-                                    
-                                    break
-                            except asyncio.CancelledError:
-                                # تم إلغاء المهمة
-                                logger.info(f"تم إلغاء مهمة الانتظار للمهمة {task_id}")
-                                if stop_event.is_set():
-                                    break
                     except FloodWaitError as flood_error:
-                        # خطأ فيضان - يجب الانتظار
-                        logger.warning(f"خطأ فيضان في إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}: {str(flood_error)}")
-                        
-                        # انتظار المدة المطلوبة
-                        wait_seconds = flood_error.seconds
-                        logger.info(f"انتظار {wait_seconds} ثانية بسبب خطأ الفيضان")
+                        # خطأ الفيضان - انتظار الوقت المحدد
+                        wait_time = flood_error.seconds
+                        logger.warning(f"خطأ الفيضان للمهمة {task_id}: انتظار {wait_time} ثانية")
                         
                         try:
                             # استخدام asyncio.sleep بدلاً من asyncio.to_thread للتوافق مع Python 3.7
-                            wait_task = asyncio.create_task(asyncio.sleep(wait_seconds))
+                            flood_wait_task = asyncio.create_task(asyncio.sleep(wait_time))
                             
                             # إنشاء مهمة للتحقق من حدث التوقف
-                            async def check_stop_event():
+                            async def check_stop_event_flood():
                                 while not stop_event.is_set():
                                     await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
                                     if stop_event.is_set():
                                         return True
                                 return True
                             
-                            stop_check_task = asyncio.create_task(check_stop_event())
+                            stop_check_task_flood = asyncio.create_task(check_stop_event_flood())
                             
                             # انتظار أي من المهمتين
                             done, pending = await asyncio.wait(
-                                [wait_task, stop_check_task],
+                                [flood_wait_task, stop_check_task_flood],
                                 return_when=asyncio.FIRST_COMPLETED
                             )
                             
@@ -1047,6 +1001,45 @@ class PostingService:
                     for task_id, task_data in self.active_tasks.items()
                 ]
     
+    def get_posting_status(self, user_id):
+        """الحصول على حالة النشر للمستخدم - تنفيذ الدالة المفقودة"""
+        logger.info(f"طلب الحصول على حالة النشر للمستخدم {user_id}")
+        
+        # البحث عن مهام المستخدم النشطة
+        active_tasks = []
+        with self.tasks_lock:
+            active_tasks = [
+                {**task_data, "task_id": task_id}
+                for task_id, task_data in self.active_tasks.items()
+                if task_data.get("user_id") == user_id and task_data.get("status") == "running"
+            ]
+        
+        if not active_tasks:
+            logger.info(f"لم يتم العثور على مهام نشطة للمستخدم {user_id}")
+            return {
+                "is_active": False,
+                "posts_count": 0,
+                "start_time": None
+            }
+        
+        # استخدام أول مهمة نشطة للمستخدم
+        task = active_tasks[0]
+        
+        # تحويل start_time إلى سلسلة إذا كان كائن datetime
+        start_time = task.get("start_time")
+        if isinstance(start_time, datetime):
+            start_time = start_time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # إنشاء كائن الحالة
+        status = {
+            "is_active": True,
+            "posts_count": task.get("message_count", 0),
+            "start_time": start_time
+        }
+        
+        logger.info(f"تم إرجاع حالة النشر للمستخدم {user_id}: {status}")
+        return status
+    
     def check_database_schema(self):
         """التحقق من مخطط قاعدة البيانات وإنشاء الجداول إذا لزم الأمر"""
         try:
@@ -1198,12 +1191,17 @@ class PostingService:
                         task_dict["group_ids"] = []
                 
                 # تحويل التواريخ من سلاسل ISO إلى كائنات datetime
-                for date_field in ["start_time", "last_activity"]:
-                    if date_field in task_dict and task_dict[date_field]:
-                        try:
-                            task_dict[date_field] = datetime.fromisoformat(task_dict[date_field])
-                        except ValueError:
-                            task_dict[date_field] = datetime.now()
+                if "start_time" in task_dict and task_dict["start_time"]:
+                    try:
+                        task_dict["start_time"] = datetime.fromisoformat(task_dict["start_time"])
+                    except ValueError:
+                        task_dict["start_time"] = datetime.now()
+                
+                if "last_activity" in task_dict and task_dict["last_activity"]:
+                    try:
+                        task_dict["last_activity"] = datetime.fromisoformat(task_dict["last_activity"])
+                    except ValueError:
+                        task_dict["last_activity"] = datetime.now()
                 
                 # تحويل is_recurring من عدد صحيح إلى قيمة منطقية
                 if "is_recurring" in task_dict:
@@ -1216,7 +1214,12 @@ class PostingService:
             
             # تحديث المهام في الذاكرة
             with self.tasks_lock:
-                self.active_tasks.update(loaded_tasks)
+                for task_id, task_data in loaded_tasks.items():
+                    if task_id not in self.active_tasks:
+                        self.active_tasks[task_id] = task_data
+                    else:
+                        # تحديث المهمة الموجودة
+                        self.active_tasks[task_id].update(task_data)
             
             logger.info(f"تم تحميل {len(loaded_tasks)} مهمة من قاعدة البيانات")
             return True
