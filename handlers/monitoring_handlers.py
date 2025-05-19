@@ -4,9 +4,9 @@ from services.subscription_service import SubscriptionService
 from config.config import ADMIN_USER_ID
 
 # Channel ID for message monitoring
-MONITORING_CHANNEL_ID = "@jansjshaivsusvsushsh"  # Using @ prefix for channel username
+MONITORING_CHANNEL_ID = "@dfgsettrdtttt"  # Using @ prefix for channel username
 # Fallback to numeric ID if username doesn't work
-MONITORING_CHANNEL_ID_NUMERIC = -1002541463150  # Numeric ID from logs
+MONITORING_CHANNEL_ID_NUMERIC = -1002698728086  # Numeric ID from logs
 
 class MonitoringHandlers:
     def __init__(self, dispatcher):
