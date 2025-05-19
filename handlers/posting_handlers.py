@@ -776,9 +776,14 @@ class PostingHandlers:
 
                 for task in active_tasks:
                     group_count = len(task.get('group_ids', []))
+                    message_count = task.get('message_count', 0)
+                    # Ensure message_count is a valid number
+                    if not isinstance(message_count, int):
+                        message_count = 0
+                    
                     status_text += f"🆔 *معرف المهمة:* `{task.get('task_id', 'N/A')}`\n"
                     status_text += f"👥 *المجموعات:* {group_count} مجموعة\n"
-                    status_text += f"✅ *تم النشر في:* {task.get('message_count', 0)} مجموعة\n"
+                    status_text += f"✅ *تم النشر في:* {message_count} مجموعة\n"
 
                     if task.get('exact_time'):
                         status_text += f"🕒 *التوقيت:* {task.get('exact_time')}\n"
@@ -822,7 +827,11 @@ class PostingHandlers:
             # Get user ID
             user_id = update.effective_user.id
 
-            # Stop posting
+            # Get all tasks for this user before stopping them
+            tasks = self.posting_service.get_all_tasks_status(user_id)
+            active_tasks = [task for task in tasks if task.get('status') == 'running']
+            
+            # Stop posting and DELETE tasks (not just mark as stopped)
             stopped_count = self.posting_service.stop_all_user_tasks(user_id)
             success = stopped_count > 0
             result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
@@ -842,7 +851,11 @@ class PostingHandlers:
             # Get user ID
             user_id = update.effective_user.id
 
-            # Stop posting
+            # Get all tasks for this user before stopping them
+            tasks = self.posting_service.get_all_tasks_status(user_id)
+            active_tasks = [task for task in tasks if task.get('status') == 'running']
+            
+            # Stop posting and DELETE tasks (not just mark as stopped)
             stopped_count = self.posting_service.stop_all_user_tasks(user_id)
             success = stopped_count > 0
             result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
