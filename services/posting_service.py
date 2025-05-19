@@ -118,6 +118,19 @@ class PostingService:
         task_id = str(user_id) + "_" + str(time.time())  # معرف مهمة بسيط
         start_time = datetime.now()
         
+        # التحقق من وجود مهام نشطة للمستخدم نفسه
+        with self.tasks_lock:
+            # فحص المهام النشطة للمستخدم
+            active_user_tasks = [tid for tid, tdata in self.active_tasks.items() 
+                               if tdata.get("user_id") == user_id and 
+                               tdata.get("status") == "running"]
+            
+            # إذا كانت هناك مهام نشطة، قم بإيقافها أولاً
+            if active_user_tasks:
+                logger.warning(f"تم العثور على {len(active_user_tasks)} مهمة نشطة للمستخدم {user_id}. سيتم إيقافها قبل بدء مهمة جديدة.")
+                for old_task_id in active_user_tasks:
+                    self._stop_task_internal(old_task_id)
+        
         task_data = {
             "user_id": user_id,
             "post_id": post_id,
@@ -135,10 +148,12 @@ class PostingService:
         
         with self.tasks_lock:
             self.active_tasks[task_id] = task_data
+            # إنشاء حدث توقف جديد - مهم للتأكد من أنه غير معين
             self.task_events[task_id] = threading.Event()
         
         # بدء تنفيذ المهمة في خيط جديد
         thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
+        thread.daemon = True  # جعل الخيط daemon لضمان إنهائه عند إنهاء البرنامج الرئيسي
         self.task_threads[task_id] = thread
         thread.start()
         
@@ -155,6 +170,12 @@ class PostingService:
     
     def _execute_task(self, task_id, user_id):
         """تنفيذ مهمة نشر (تعمل في خيط)"""
+        # التحقق من حالة المهمة قبل البدء
+        with self.tasks_lock:
+            if task_id not in self.active_tasks or self.active_tasks[task_id].get("status") != "running":
+                logger.warning(f"المهمة {task_id} ليست في حالة تشغيل، إلغاء التنفيذ.")
+                return
+        
         # استرجاع سلسلة جلسة المستخدم من قاعدة البيانات
         user_data = self.users_collection.find_one({"user_id": user_id})
         
@@ -231,10 +252,21 @@ class PostingService:
                     
                     return  # الخروج من الروتين المشترك، سيتم تنفيذ finally
                 
+                # التحقق من حالة المهمة مرة أخرى قبل بدء الإرسال
+                with self.tasks_lock:
+                    if task_id not in self.active_tasks or self.active_tasks[task_id].get("status") != "running":
+                        logger.warning(f"المهمة {task_id} لم تعد في حالة تشغيل، إلغاء التنفيذ.")
+                        return
+                
                 stop_event = self.task_events.get(task_id)  # التأكد من تعريف stop_event قبل الحلقة
                 
                 if not stop_event:
                     logger.error(f"لم يتم العثور على حدث التوقف للمهمة {task_id}. إنهاء المهمة.")
+                    return
+                
+                # التحقق من حدث التوقف قبل بدء الإرسال
+                if stop_event.is_set():
+                    logger.info(f"تم تعيين حدث التوقف للمهمة {task_id} قبل بدء الإرسال. إلغاء المهمة.")
                     return
                 
                 # استرجاع بيانات المهمة
@@ -261,46 +293,91 @@ class PostingService:
                             logger.info(f"المهمة {task_id} ستنتظر حتى {exact_time} ({wait_seconds} ثانية)")
                             
                             # انتظار حتى الوقت المحدد أو حتى يتم تعيين حدث التوقف
-                            await asyncio.wait_for(
-                                asyncio.create_task(asyncio.to_thread(stop_event.wait)),
-                                timeout=wait_seconds,
-                                loop=loop
-                            )
-                            
-                            if stop_event.is_set():
-                                logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار حتى الوقت المحدد")
+                            try:
+                                await asyncio.wait_for(
+                                    asyncio.create_task(asyncio.to_thread(stop_event.wait)),
+                                    timeout=wait_seconds,
+                                    loop=loop
+                                )
                                 
-                                with self.tasks_lock:
-                                    if task_id in self.active_tasks:
-                                        self.active_tasks[task_id]["status"] = "stopped"
-                                        self.active_tasks[task_id]["last_activity"] = datetime.now()
-                                
-                                # حفظ الحالة بعد إيقاف المهمة أثناء الانتظار
-                                save_result = self.save_active_tasks()
-                                if save_result:
-                                    logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
-                                else:
-                                    logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
-                                
-                                return
+                                if stop_event.is_set():
+                                    logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار حتى الوقت المحدد")
+                                    
+                                    with self.tasks_lock:
+                                        if task_id in self.active_tasks:
+                                            self.active_tasks[task_id]["status"] = "stopped"
+                                            self.active_tasks[task_id]["last_activity"] = datetime.now()
+                                    
+                                    # حفظ الحالة بعد إيقاف المهمة أثناء الانتظار
+                                    save_result = self.save_active_tasks()
+                                    if save_result:
+                                        logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
+                                    else:
+                                        logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
+                                    
+                                    return
+                            except asyncio.TimeoutError:
+                                # انتهت مهلة الانتظار، استمر في التنفيذ
+                                pass
                     except (ValueError, asyncio.TimeoutError) as e:
                         logger.error(f"خطأ في انتظار الوقت المحدد للمهمة {task_id}: {str(e)}")
                 
+                # التحقق من حدث التوقف مرة أخرى قبل بدء حلقة الإرسال
+                if stop_event.is_set():
+                    logger.info(f"تم تعيين حدث التوقف للمهمة {task_id} قبل بدء حلقة الإرسال. إلغاء المهمة.")
+                    
+                    with self.tasks_lock:
+                        if task_id in self.active_tasks:
+                            self.active_tasks[task_id]["status"] = "stopped"
+                            self.active_tasks[task_id]["last_activity"] = datetime.now()
+                    
+                    # حفظ الحالة
+                    self.save_active_tasks()
+                    return
+                
+                # التحقق من وجود مجموعات للإرسال
+                if not group_ids:
+                    logger.warning(f"لا توجد مجموعات للإرسال في المهمة {task_id}. إنهاء المهمة.")
+                    
+                    with self.tasks_lock:
+                        if task_id in self.active_tasks:
+                            self.active_tasks[task_id]["status"] = "completed"
+                            self.active_tasks[task_id]["last_activity"] = datetime.now()
+                    
+                    # حفظ الحالة
+                    self.save_active_tasks()
+                    return
+                
                 # إرسال الرسالة إلى كل مجموعة
                 for i, group_id in enumerate(group_ids):
+                    # التحقق من حدث التوقف قبل كل إرسال
                     if stop_event.is_set():
                         logger.info(f"تم إيقاف المهمة {task_id} بعد إرسال {i} رسائل")
                         break
                     
+                    # التحقق من حالة المهمة قبل كل إرسال
+                    with self.tasks_lock:
+                        if task_id not in self.active_tasks or self.active_tasks[task_id].get("status") != "running":
+                            logger.warning(f"المهمة {task_id} لم تعد في حالة تشغيل، إلغاء الإرسال المتبقي.")
+                            break
+                    
                     try:
                         # إرسال الرسالة إلى المجموعة
-                        await self._send_message_to_group(client, group_id, message)
+                        send_result = await self._send_message_to_group(client, group_id, message)
+                        
+                        # التحقق من نجاح الإرسال
+                        if not send_result:
+                            logger.warning(f"فشل إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}")
+                            continue
                         
                         # تحديث عدد الرسائل ووقت النشاط الأخير
                         with self.tasks_lock:
-                            if task_id in self.active_tasks:
+                            if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
                                 self.active_tasks[task_id]["message_count"] += 1
                                 self.active_tasks[task_id]["last_activity"] = datetime.now()
+                            else:
+                                logger.warning(f"المهمة {task_id} لم تعد في حالة تشغيل، إلغاء تحديث العداد.")
+                                break
                         
                         # حفظ الحالة بعد كل إرسال ناجح (نشر تلقائي)
                         save_result = self.save_active_tasks()
@@ -327,21 +404,39 @@ class PostingService:
                             except asyncio.TimeoutError:
                                 # انتهت مهلة الانتظار، استمر في الحلقة
                                 pass
+                            
+                            # التحقق من حالة المهمة بعد الانتظار
+                            with self.tasks_lock:
+                                if task_id not in self.active_tasks or self.active_tasks[task_id].get("status") != "running":
+                                    logger.warning(f"المهمة {task_id} لم تعد في حالة تشغيل بعد الانتظار، إلغاء الإرسال المتبقي.")
+                                    break
                     except Exception as e:
                         logger.error(f"خطأ في إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}: {str(e)}")
                 
                 # تحديث حالة المهمة إلى "مكتملة" إذا لم يتم إيقافها
                 with self.tasks_lock:
-                    if task_id in self.active_tasks and not stop_event.is_set():
-                        self.active_tasks[task_id]["status"] = "completed"
-                        self.active_tasks[task_id]["last_activity"] = datetime.now()
-                        
-                        # حفظ الحالة بعد اكتمال المهمة
-                        save_result = self.save_active_tasks()
-                        if save_result:
-                            logger.info(f"تم حفظ حالة المهام بعد اكتمال المهمة {task_id}")
-                        else:
-                            logger.warning(f"فشل حفظ حالة المهام بعد اكتمال المهمة {task_id}")
+                    if task_id in self.active_tasks:
+                        if not stop_event.is_set() and self.active_tasks[task_id].get("status") == "running":
+                            self.active_tasks[task_id]["status"] = "completed"
+                            self.active_tasks[task_id]["last_activity"] = datetime.now()
+                            
+                            # حفظ الحالة بعد اكتمال المهمة
+                            save_result = self.save_active_tasks()
+                            if save_result:
+                                logger.info(f"تم حفظ حالة المهام بعد اكتمال المهمة {task_id}")
+                            else:
+                                logger.warning(f"فشل حفظ حالة المهام بعد اكتمال المهمة {task_id}")
+                        elif stop_event.is_set():
+                            # تأكيد أن المهمة متوقفة
+                            self.active_tasks[task_id]["status"] = "stopped"
+                            self.active_tasks[task_id]["last_activity"] = datetime.now()
+                            
+                            # حفظ الحالة بعد إيقاف المهمة
+                            save_result = self.save_active_tasks()
+                            if save_result:
+                                logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} في نهاية التنفيذ")
+                            else:
+                                logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} في نهاية التنفيذ")
             except Exception as e:
                 logger.error(f"خطأ في تنفيذ المهمة {task_id}: {str(e)}")
                 
@@ -358,13 +453,19 @@ class PostingService:
                     logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id}")
             finally:
                 # تنظيف الموارد
-                await client.disconnect()
+                try:
+                    await client.disconnect()
+                except:
+                    pass
                 
-                # إزالة المراجع إذا كانت المهمة مكتملة أو فشلت
+                # إزالة المراجع إذا كانت المهمة مكتملة أو فشلت أو توقفت
                 with self.tasks_lock:
-                    if task_id in self.active_tasks and self.active_tasks[task_id].get("status") in ["completed", "failed"]:
+                    if task_id in self.active_tasks and self.active_tasks[task_id].get("status") in ["completed", "failed", "stopped"]:
                         if task_id in self.task_events:
-                            del self.task_events[task_id]
+                            # لا نحذف الحدث، ولكن نتأكد من تعيينه لمنع أي تنفيذ إضافي
+                            self.task_events[task_id].set()
+                        
+                        # إزالة مرجع الخيط
                         if task_id in self.task_threads:
                             del self.task_threads[task_id]
         
@@ -374,7 +475,10 @@ class PostingService:
         except Exception as e:
             logger.error(f"خطأ في تنفيذ حلقة المهمة {task_id}: {str(e)}")
         finally:
-            loop.close()
+            try:
+                loop.close()
+            except:
+                pass
     
     async def _send_message_to_group(self, client, group_id, message):
         """مساعد لإرسال رسالة إلى مجموعة واحدة والتعامل مع الأخطاء"""
@@ -396,6 +500,24 @@ class PostingService:
         except Exception as e:
             logger.error(f"خطأ في إرسال الرسالة إلى المجموعة {group_id}: {str(e)}")
             return False
+    
+    def _stop_task_internal(self, task_id):
+        """إيقاف مهمة داخلياً دون حذفها"""
+        if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
+            logger.info(f"إيقاف المهمة {task_id} داخلياً")
+            
+            # إشارة للخيط بالتوقف
+            if task_id in self.task_events:
+                self.task_events[task_id].set()
+            
+            # تحديث حالة المهمة إلى "متوقفة"
+            self.active_tasks[task_id]["status"] = "stopped"
+            self.active_tasks[task_id]["last_activity"] = datetime.now()
+            
+            # حفظ الحالة
+            self.save_active_tasks()
+            return True
+        return False
     
     def stop_posting_task(self, task_id):
         """إيقاف وحذف مهمة نشر قيد التشغيل"""
@@ -450,7 +572,9 @@ class PostingService:
                 
                 # تنظيف الكائنات المرتبطة
                 if task_id in self.task_events:
-                    del self.task_events[task_id]
+                    # لا نحذف الحدث، ولكن نتأكد من تعيينه لمنع أي تنفيذ إضافي
+                    self.task_events[task_id].set()
+                
                 if task_id in self.task_threads:
                     del self.task_threads[task_id]
                 
@@ -488,7 +612,9 @@ class PostingService:
                 
                 # تنظيف الكائنات المرتبطة
                 if task_id in self.task_events:
-                    del self.task_events[task_id]
+                    # لا نحذف الحدث، ولكن نتأكد من تعيينه لمنع أي تنفيذ إضافي
+                    self.task_events[task_id].set()
+                
                 if task_id in self.task_threads:
                     del self.task_threads[task_id]
                 
@@ -526,6 +652,7 @@ class PostingService:
                         
                         # بدء تنفيذ المهمة في خيط جديد
                         new_thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
+                        new_thread.daemon = True
                         self.task_threads[task_id] = new_thread
                         new_thread.start()
                         
@@ -616,6 +743,3 @@ class PostingService:
         
         logger.info(f"تم مسح {cleared_count} مهمة نشر بشكل دائم.")
         return True, f"✅ تم مسح جميع مهام النشر ({cleared_count}) بشكل دائم."
-
-# نسخة عامة من خدمة النشر المحسنة (إذا لزم الأمر)
-# enhanced_posting_service_instance = EnhancedPostingService()
