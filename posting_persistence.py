@@ -64,6 +64,16 @@ class PostingPersistenceManager:
         """
         تحديد ما إذا كان يجب استعادة مهام النشر عند بدء تشغيل البوت
         """
+        # إذا كان ملف علامة إعادة التشغيل موجوداً، فيجب استعادة المهام
+        if os.path.exists(self.restart_marker_file):
+            logger.info("Restart marker found, tasks will be restored")
+            # حذف ملف علامة إعادة التشغيل بعد التحقق منه
+            try:
+                os.remove(self.restart_marker_file)
+            except Exception as e:
+                logger.error(f"Error removing restart marker: {str(e)}")
+            return True
+        
         # إذا كان ملف علامة الإيقاف موجوداً، فلا يجب استعادة المهام
         if os.path.exists(self.shutdown_marker_file):
             logger.info("Shutdown marker found, tasks will not be restored")
@@ -74,8 +84,8 @@ class PostingPersistenceManager:
                 logger.error(f"Error removing shutdown marker: {str(e)}")
             return False
         
-        # إذا لم يكن ملف علامة الإيقاف موجوداً، يجب استعادة المهام
-        logger.info("No shutdown marker found, tasks will be restored")
+        # إذا لم يكن أي من الملفين موجوداً، يجب استعادة المهام (الافتراضي)
+        logger.info("No markers found, tasks will be restored by default")
         return True
     
     def _stop_all_active_tasks(self):

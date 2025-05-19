@@ -228,8 +228,8 @@ class PostingService:
             logger.error(f"خطأ في حفظ المهام النشطة إلى {self.active_tasks_json_file}: {str(e)}")
             return False
     
-    def start_posting_task(self, user_id, post_id, message, group_ids, delay_seconds=None, exact_time=None, is_recurring=False):
-        """بدء مهمة نشر جديدة"""
+    def start_posting_task(self, user_id, post_id, message, group_ids, delay_seconds=None, exact_time=None, is_recurring=True):
+        """بدء مهمة نشر جديدة (متكررة افتراضياً)"""
         task_id = str(user_id) + "_" + str(time.time())  # معرف مهمة بسيط
         start_time = datetime.now()
         
@@ -523,61 +523,79 @@ class PostingService:
                 # التعامل مع الوقت المحدد إذا تم تحديده
                 if exact_time:
                     try:
+                        # تحويل الوقت المحدد من النص إلى كائن datetime
                         if isinstance(exact_time, str):
-                            exact_time = datetime.fromisoformat(exact_time)
-                        
-                        now = datetime.now()
-                        if exact_time > now:
-                            wait_seconds = (exact_time - now).total_seconds()
-                            logger.info(f"المهمة {task_id} ستنتظر حتى {exact_time} ({wait_seconds} ثانية)")
-                            
-                            # انتظار حتى الوقت المحدد أو حتى يتم تعيين حدث التوقف
                             try:
-                                # استخدام asyncio.sleep بدلاً من asyncio.to_thread للتوافق مع Python 3.7
-                                wait_task = asyncio.create_task(asyncio.sleep(wait_seconds))
+                                exact_time = datetime.fromisoformat(exact_time)
+                            except ValueError:
+                                # محاولة تحليل التنسيقات الشائعة إذا فشل التحويل المباشر
+                                try:
+                                    exact_time = datetime.strptime(exact_time, "%Y-%m-%d %H:%M:%S")
+                                except ValueError:
+                                    try:
+                                        exact_time = datetime.strptime(exact_time, "%Y-%m-%dT%H:%M:%S")
+                                    except ValueError:
+                                        logger.error(f"تعذر تحويل الوقت المحدد: {exact_time}")
+                                        exact_time = None
+                        
+                        if exact_time:
+                            now = datetime.now()
+                            
+                            # التحقق مما إذا كان الوقت المحدد في المستقبل
+                            if exact_time > now:
+                                wait_seconds = (exact_time - now).total_seconds()
+                                logger.info(f"المهمة {task_id} ستنتظر حتى {exact_time} ({wait_seconds} ثانية)")
                                 
-                                # إنشاء مهمة للتحقق من حدث التوقف
-                                async def check_stop_event():
-                                    while not stop_event.is_set():
-                                        await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
-                                        if stop_event.is_set():
-                                            return True
-                                    return True
-                                
-                                stop_check_task = asyncio.create_task(check_stop_event())
-                                
-                                # انتظار أي من المهمتين
-                                done, pending = await asyncio.wait(
-                                    [wait_task, stop_check_task],
-                                    return_when=asyncio.FIRST_COMPLETED
-                                )
-                                
-                                # إلغاء المهام المعلقة
-                                for task in pending:
-                                    task.cancel()
-                                
-                                if stop_event.is_set():
-                                    logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار حتى الوقت المحدد")
+                                # انتظار حتى الوقت المحدد أو حتى يتم تعيين حدث التوقف
+                                try:
+                                    # استخدام asyncio.sleep بدلاً من asyncio.to_thread للتوافق مع Python 3.7
+                                    wait_task = asyncio.create_task(asyncio.sleep(wait_seconds))
                                     
-                                    with self.tasks_lock:
-                                        if task_id in self.active_tasks:
-                                            self.active_tasks[task_id]["status"] = "stopped"
-                                            self.active_tasks[task_id]["last_activity"] = datetime.now()
+                                    # إنشاء مهمة للتحقق من حدث التوقف
+                                    async def check_stop_event():
+                                        while not stop_event.is_set():
+                                            await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
+                                            if stop_event.is_set():
+                                                return True
+                                        return True
                                     
-                                    # حفظ الحالة بعد إيقاف المهمة أثناء الانتظار
-                                    save_result = self.save_active_tasks()
-                                    if save_result:
-                                        logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
-                                    else:
-                                        logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
+                                    stop_check_task = asyncio.create_task(check_stop_event())
                                     
-                                    return
-                            except asyncio.CancelledError:
-                                # تم إلغاء المهمة
-                                logger.info(f"تم إلغاء مهمة الانتظار للمهمة {task_id}")
-                                if stop_event.is_set():
-                                    return
-                    except (ValueError, asyncio.CancelledError) as e:
+                                    # انتظار أي من المهمتين
+                                    done, pending = await asyncio.wait(
+                                        [wait_task, stop_check_task],
+                                        return_when=asyncio.FIRST_COMPLETED
+                                    )
+                                    
+                                    # إلغاء المهام المعلقة
+                                    for task in pending:
+                                        task.cancel()
+                                    
+                                    if stop_event.is_set():
+                                        logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار حتى الوقت المحدد")
+                                        
+                                        with self.tasks_lock:
+                                            if task_id in self.active_tasks:
+                                                self.active_tasks[task_id]["status"] = "stopped"
+                                                self.active_tasks[task_id]["last_activity"] = datetime.now()
+                                        
+                                        # حفظ الحالة بعد إيقاف المهمة أثناء الانتظار
+                                        save_result = self.save_active_tasks()
+                                        if save_result:
+                                            logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
+                                        else:
+                                            logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id} أثناء الانتظار")
+                                        
+                                        return
+                                except asyncio.CancelledError:
+                                    # تم إلغاء المهمة
+                                    logger.info(f"تم إلغاء مهمة الانتظار للمهمة {task_id}")
+                                    if stop_event.is_set():
+                                        return
+                            else:
+                                # إذا كان الوقت المحدد في الماضي، قم بالنشر فوراً
+                                logger.info(f"الوقت المحدد {exact_time} في الماضي، سيتم النشر فوراً")
+                    except Exception as e:
                         logger.error(f"خطأ في انتظار الوقت المحدد للمهمة {task_id}: {str(e)}")
                 
                 # التحقق من حدث التوقف مرة أخرى قبل بدء حلقة الإرسال
@@ -870,6 +888,64 @@ class PostingService:
                     logger.info(f"تم حفظ حالة المهام بعد اكتمال المهمة {task_id}")
                 else:
                     logger.warning(f"فشل حفظ حالة المهام بعد اكتمال المهمة {task_id}")
+                
+                # التحقق مما إذا كانت المهمة متكررة
+                is_recurring = False
+                with self.tasks_lock:
+                    if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
+                        is_recurring = self.active_tasks[task_id].get("is_recurring", False)
+
+                # إذا كانت المهمة متكررة وليست متوقفة، انتظر ثم كرر العملية
+                if is_recurring and not stop_event.is_set():
+                    logger.info(f"المهمة {task_id} متكررة، سيتم تكرار النشر بعد التأخير")
+                    
+                    # التأخير بين دورات النشر
+                    cycle_delay = delay_seconds if delay_seconds and delay_seconds > 0 else 3600  # استخدام ساعة كتأخير افتراضي
+                    
+                    try:
+                        # انتظار المدة المحددة أو حتى يتم تعيين حدث التوقف
+                        wait_task = asyncio.create_task(asyncio.sleep(cycle_delay))
+                        
+                        # إنشاء مهمة للتحقق من حدث التوقف
+                        async def check_stop_event():
+                            while not stop_event.is_set():
+                                await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
+                                if stop_event.is_set():
+                                    return True
+                            return True
+                        
+                        stop_check_task = asyncio.create_task(check_stop_event())
+                        
+                        # انتظار أي من المهمتين
+                        done, pending = await asyncio.wait(
+                            [wait_task, stop_check_task],
+                            return_when=asyncio.FIRST_COMPLETED
+                        )
+                        
+                        # إلغاء المهام المعلقة
+                        for task in pending:
+                            task.cancel()
+                        
+                        if not stop_event.is_set():
+                            # إعادة تشغيل الروتين المشترك لتكرار النشر
+                            logger.info(f"إعادة تشغيل دورة النشر للمهمة {task_id}")
+                            await task_coroutine()  # استدعاء ذاتي للروتين المشترك
+                        else:
+                            logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار بين دورات النشر")
+                            
+                            with self.tasks_lock:
+                                if task_id in self.active_tasks:
+                                    self.active_tasks[task_id]["status"] = "stopped"
+                                    self.active_tasks[task_id]["last_activity"] = datetime.now()
+                            
+                            # حفظ الحالة بعد إيقاف المهمة
+                            save_result = self.save_active_tasks()
+                            if save_result:
+                                logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id}")
+                            else:
+                                logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id}")
+                    except Exception as e:
+                        logger.error(f"خطأ في تكرار النشر للمهمة {task_id}: {str(e)}")
             except Exception as e:
                 logger.error(f"خطأ غير متوقع في تنفيذ المهمة {task_id}: {str(e)}")
                 
