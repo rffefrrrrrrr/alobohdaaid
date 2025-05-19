@@ -7,10 +7,6 @@ import asyncio
 import atexit
 import sqlite3
 from datetime import datetime
-from database.db import Database  # Import Database class
-
-from telethon.sync import TelegramClient
-from telethon.sessions import StringSession
 
 # تكوين التسجيل
 logger = logging.getLogger(__name__)
@@ -41,21 +37,45 @@ class PostingService:
         # تهيئة اتصال قاعدة البيانات إذا لم يتم توفيره
         if users_collection is None:
             try:
-                # إنشاء اتصال قاعدة البيانات
-                self.db = Database()
-                self.users_collection = self.db.get_collection("users")
-                logger.info("تم تهيئة اتصال قاعدة البيانات في PostingService")
+                # محاولة استيراد Database من وحدة database.db
+                try:
+                    from database.db import Database
+                    self.db = Database()
+                    self.users_collection = self.db.get_collection("users")
+                    logger.info("تم تهيئة اتصال قاعدة البيانات في PostingService باستخدام database.db")
+                except ImportError:
+                    # إذا فشل الاستيراد، حاول استيراد من المسار المطلق
+                    import sys
+                    sys.path.append('/app')
+                    from database.db import Database
+                    self.db = Database()
+                    self.users_collection = self.db.get_collection("users")
+                    logger.info("تم تهيئة اتصال قاعدة البيانات في PostingService باستخدام المسار المطلق")
             except Exception as e:
                 logger.error(f"خطأ في تهيئة اتصال قاعدة البيانات في PostingService: {str(e)}")
                 # إنشاء كائن FallbackCollection كبديل
-                from services.subscription_service import FallbackCollection
-                self.users_collection = FallbackCollection()
-                logger.warning("تم استخدام FallbackCollection كبديل في PostingService")
+                try:
+                    from services.subscription_service import FallbackCollection
+                    self.users_collection = FallbackCollection()
+                    logger.warning("تم استخدام FallbackCollection كبديل في PostingService")
+                except Exception as fallback_error:
+                    logger.error(f"فشل في إنشاء FallbackCollection: {str(fallback_error)}")
+                    # إنشاء كائن بديل بسيط
+                    class SimpleCollection:
+                        def find_one(self, query):
+                            logger.warning(f"استخدام SimpleCollection.find_one مع {query}")
+                            return None
+                    self.users_collection = SimpleCollection()
+                    logger.warning("تم استخدام SimpleCollection كبديل أخير في PostingService")
         else:
             self.users_collection = users_collection
+            logger.info("تم استخدام users_collection المقدم في PostingService")
             
         # تحميل المهام النشطة من الملف عند بدء التشغيل
         self._load_active_tasks()
+        
+        # إعادة تشغيل المهام النشطة
+        self._resume_active_tasks()
         
         # تسجيل دالة الحفظ لتنفيذها عند الخروج
         atexit.register(self.save_active_tasks)
@@ -84,11 +104,47 @@ class PostingService:
                 
                 self.active_tasks = loaded_tasks
                 logger.info(f"تم تحميل {len(loaded_tasks)} مهمة نشطة من {self.active_tasks_json_file}")
+                
+                # طباعة معلومات المهام المحملة للتصحيح
+                for task_id, task_data in loaded_tasks.items():
+                    logger.info(f"تم تحميل المهمة {task_id} بحالة {task_data.get('status')} للمستخدم {task_data.get('user_id')}")
             else:
                 logger.info(f"ملف المهام النشطة {self.active_tasks_json_file} غير موجود، سيتم إنشاؤه عند الحفظ")
         except Exception as e:
             logger.error(f"خطأ في تحميل المهام النشطة من {self.active_tasks_json_file}: {str(e)}")
             self.active_tasks = {}
+    
+    def _resume_active_tasks(self):
+        """إعادة تشغيل المهام النشطة بعد إعادة تشغيل البوت"""
+        resumed_count = 0
+        with self.tasks_lock:
+            running_tasks = {task_id: task_data for task_id, task_data in self.active_tasks.items() 
+                           if task_data.get("status") == "running"}
+            
+            logger.info(f"محاولة استئناف {len(running_tasks)} مهمة نشطة")
+            
+            for task_id, task_data in running_tasks.items():
+                try:
+                    user_id = task_data.get("user_id")
+                    if not user_id:
+                        logger.warning(f"المهمة {task_id} لا تحتوي على معرف مستخدم صالح، تخطي")
+                        continue
+                    
+                    # إنشاء حدث توقف جديد لكل مهمة
+                    self.task_events[task_id] = threading.Event()
+                    
+                    # بدء تنفيذ المهمة في خيط جديد
+                    thread = threading.Thread(target=self._execute_task, args=(task_id, user_id))
+                    thread.daemon = True
+                    self.task_threads[task_id] = thread
+                    thread.start()
+                    
+                    resumed_count += 1
+                    logger.info(f"تم استئناف المهمة {task_id} للمستخدم {user_id}")
+                except Exception as e:
+                    logger.error(f"خطأ في استئناف المهمة {task_id}: {str(e)}")
+        
+        logger.info(f"تم استئناف {resumed_count} مهمة نشطة بنجاح")
     
     def save_active_tasks(self):
         """حفظ المهام النشطة إلى ملف JSON مع تسجيل محسن"""
@@ -197,9 +253,19 @@ class PostingService:
             logger.error(f"users_collection غير متاح للمهمة {task_id}. محاولة إعادة التهيئة...")
             try:
                 # محاولة إعادة تهيئة اتصال قاعدة البيانات
-                self.db = Database()
-                self.users_collection = self.db.get_collection("users")
-                logger.info(f"تم إعادة تهيئة اتصال قاعدة البيانات للمهمة {task_id}")
+                try:
+                    from database.db import Database
+                    self.db = Database()
+                    self.users_collection = self.db.get_collection("users")
+                    logger.info(f"تم إعادة تهيئة اتصال قاعدة البيانات للمهمة {task_id}")
+                except ImportError:
+                    # إذا فشل الاستيراد، حاول استيراد من المسار المطلق
+                    import sys
+                    sys.path.append('/app')
+                    from database.db import Database
+                    self.db = Database()
+                    self.users_collection = self.db.get_collection("users")
+                    logger.info(f"تم إعادة تهيئة اتصال قاعدة البيانات للمهمة {task_id} باستخدام المسار المطلق")
             except Exception as e:
                 logger.error(f"فشل إعادة تهيئة اتصال قاعدة البيانات للمهمة {task_id}: {str(e)}")
                 
@@ -219,9 +285,27 @@ class PostingService:
         
         # استرجاع سلسلة جلسة المستخدم من قاعدة البيانات
         try:
+            logger.info(f"محاولة استرجاع بيانات المستخدم {user_id} للمهمة {task_id}")
             user_data = self.users_collection.find_one({"user_id": user_id})
             
-            if not user_data or "session_string" not in user_data:
+            if not user_data:
+                logger.error(f"لم يتم العثور على بيانات للمستخدم {user_id} للمهمة {task_id}")
+                
+                with self.tasks_lock:
+                    if task_id in self.active_tasks:
+                        self.active_tasks[task_id]["status"] = "failed"
+                        self.active_tasks[task_id]["last_activity"] = datetime.now()
+                
+                # حفظ الحالة بعد فشل المهمة
+                save_result = self.save_active_tasks()
+                if save_result:
+                    logger.info(f"تم حفظ حالة المهام بعد فشل المهمة {task_id}")
+                else:
+                    logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id}")
+                
+                return
+            
+            if "session_string" not in user_data:
                 logger.error(f"لم يتم العثور على سلسلة جلسة للمستخدم {user_id} للمهمة {task_id}")
                 
                 with self.tasks_lock:
@@ -239,6 +323,7 @@ class PostingService:
                 return
             
             session_string = user_data["session_string"]
+            logger.info(f"تم استرجاع سلسلة جلسة للمستخدم {user_id} للمهمة {task_id}")
         except Exception as e:
             logger.error(f"خطأ في استرجاع بيانات المستخدم للمهمة {task_id}: {str(e)}")
             
@@ -262,9 +347,19 @@ class PostingService:
         
         if not api_id or not api_hash:
             logger.warning(f"لم يتم العثور على API ID/Hash في user_data للمستخدم {user_id}. الرجوع إلى التكوين العام.")
-            from config.config import API_ID as GLOBAL_API_ID, API_HASH as GLOBAL_API_HASH
-            api_id = GLOBAL_API_ID
-            api_hash = GLOBAL_API_HASH
+            try:
+                from config.config import API_ID as GLOBAL_API_ID, API_HASH as GLOBAL_API_HASH
+                api_id = GLOBAL_API_ID
+                api_hash = GLOBAL_API_HASH
+            except ImportError:
+                try:
+                    import sys
+                    sys.path.append('/app')
+                    from config.config import API_ID as GLOBAL_API_ID, API_HASH as GLOBAL_API_HASH
+                    api_id = GLOBAL_API_ID
+                    api_hash = GLOBAL_API_HASH
+                except Exception as e:
+                    logger.error(f"فشل استيراد API ID/Hash من التكوين العام: {str(e)}")
         
         if not api_id or not api_hash:
             logger.error(f"خطأ حرج: API ID/Hash مفقود للمستخدم {user_id} ومفقود أيضًا في التكوين العام. ستفشل المهمة {task_id}.")
@@ -282,6 +377,33 @@ class PostingService:
                 logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id} بسبب نقص API ID/Hash")
             
             return
+        
+        # استيراد TelegramClient هنا لتجنب مشاكل الاستيراد المبكر
+        try:
+            from telethon.sync import TelegramClient
+            from telethon.sessions import StringSession
+        except ImportError:
+            try:
+                import sys
+                sys.path.append('/app')
+                from telethon.sync import TelegramClient
+                from telethon.sessions import StringSession
+            except Exception as e:
+                logger.error(f"فشل استيراد Telethon: {str(e)}")
+                
+                with self.tasks_lock:
+                    if task_id in self.active_tasks:
+                        self.active_tasks[task_id]["status"] = "failed"
+                        self.active_tasks[task_id]["last_activity"] = datetime.now()
+                
+                # حفظ الحالة بعد فشل المهمة
+                save_result = self.save_active_tasks()
+                if save_result:
+                    logger.info(f"تم حفظ حالة المهام بعد فشل المهمة {task_id} بسبب فشل استيراد Telethon")
+                else:
+                    logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id} بسبب فشل استيراد Telethon")
+                
+                return
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -399,6 +521,7 @@ class PostingService:
                     return
                 
                 # بدء حلقة الإرسال
+                logger.info(f"بدء حلقة الإرسال للمهمة {task_id} مع {len(group_ids)} مجموعة")
                 for group_id in group_ids:
                     # التحقق من حدث التوقف قبل كل إرسال
                     if stop_event.is_set():
@@ -420,11 +543,14 @@ class PostingService:
                     
                     try:
                         # محاولة إرسال الرسالة إلى المجموعة
+                        logger.info(f"محاولة إرسال رسالة إلى المجموعة {group_id} للمهمة {task_id}")
                         send_result = await client.send_message(group_id, message)
                         
                         if not send_result:
                             logger.warning(f"فشل إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}")
                             continue
+                        
+                        logger.info(f"تم إرسال الرسالة بنجاح إلى المجموعة {group_id} للمهمة {task_id}")
                         
                         # تحديث عدد الرسائل ووقت النشاط الأخير
                         with self.tasks_lock:
