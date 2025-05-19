@@ -14,7 +14,7 @@ from telethon.sessions import StringSession
 # تكوين التسجيل
 logger = logging.getLogger(__name__)
 
-class EnhancedPostingService:
+class PostingService:
     """خدمة النشر المحسنة مع حفظ تلقائي عند كل عملية إيقاف نشر أو نشر تلقائي"""
     
     def __init__(self, data_dir='data', users_collection=None):
