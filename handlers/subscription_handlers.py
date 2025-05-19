@@ -452,8 +452,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def statistics_command(self, update: Update, context: CallbackContext):
-
-
         """Show user statistics"""
         chat_id = update.effective_chat.id
 
@@ -517,8 +515,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def remove_user_command(self, update: Update, context: CallbackContext):
-
-
         """Remove a user's subscription. Format: /removeuser USER_ID"""
         chat_id = update.effective_chat.id
 
@@ -574,8 +570,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def check_user_command(self, update: Update, context: CallbackContext):
-
-
         """Check a user's subscription status. Format: /checkuser USER_ID"""
         chat_id = update.effective_chat.id
 
@@ -675,8 +669,6 @@ class SubscriptionHandlers:
     @admin_only
     @auto_channel_subscription_required
     async def list_users_command(self, update: Update, context: CallbackContext):
-
-
         """List all users with active subscriptions"""
         chat_id = update.effective_chat.id
 
@@ -712,23 +704,21 @@ class SubscriptionHandlers:
 
     @subscription_required
     async def subscription_status_command(self, update: Update, context: CallbackContext):
-
-
         """Show user's subscription status and allow requesting subscription"""
-        # --- BEGIN INSERTED CODE ---
-        from telegram import Update # Ensure Update is imported
+        # Check if update is a valid Update object
         if not isinstance(update, Update):
-            logger.error(f"In subscription_status_command: Expected 'update' to be of type Update, but got {type(update)}. Value: {str(update)[:200]}")
+            logger.error(f"خطأ في عرض حالة اشتراك المستخدم: 'int' object has no attribute 'effective_user'")
+            # If update is an integer (user_id), try to send an error message
             if isinstance(update, int) and context and hasattr(context, 'bot'):
                 try:
                     await context.bot.send_message(
-                        chat_id=update, # Assuming the int is the user_id
-                        text="حدث خطأ أثناء استعراض حالة اشتراكك. قد يكون هناك مشكلة في استدعاء الأمر. يرجى المحاولة مرة أخرى لاحقًا."
+                        chat_id=update,
+                        text="⚠️ حدث خطأ في عرض حالة الاشتراك. يرجى المحاولة مرة أخرى."
                     )
-                except Exception as e_send:
-                    logger.error(f"Failed to send error message to user {update} in subscription_status_command: {e_send}")
-            return # Stop further execution
-        # --- END INSERTED CODE ---
+                except Exception as e:
+                    logger.error(f"خطأ في إرسال رسالة خطأ للمستخدم {update}: {str(e)}")
+            return
+
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         user = update.effective_user
@@ -754,7 +744,7 @@ class SubscriptionHandlers:
 
             if required_channel:
                 # استخدام دالة check_subscription_status المحسنة
-                is_subscribed = await self.check_subscription_status(user_id, context.bot)
+                is_subscribed = await self.check_channel_subscription(user_id, context.bot)
                 channel_status = f"✅ مشترك في {required_channel}" if is_subscribed else f"❌ غير مشترك في {required_channel}"
 
                 # إذا كان المستخدم غير مشترك في القناة، إظهار زر للاشتراك
@@ -949,7 +939,7 @@ class SubscriptionHandlers:
                 required_channel = channel_subscription.get_required_channel()
                 if required_channel:
                     # استخدام دالة check_subscription_status المحسنة
-                    is_subscribed = await self.check_subscription_status(user_id, context.bot)
+                    is_subscribed = await self.check_channel_subscription(user_id, context.bot)
                     if is_subscribed:
                         await query.edit_message_text(
                             text=f"✅ تم التحقق من اشتراكك في {required_channel} بنجاح.\n\n"
@@ -1062,51 +1052,19 @@ class SubscriptionHandlers:
             except:
                 pass
 
-
-    # Placeholder for the missing method
-    def check_subscription_status(self, user_id: int) -> bool:
+    # Fixed method to check channel subscription
+    async def check_channel_subscription(self, user_id, bot):
         """
-        Checks if a user has an active subscription.
-        This is a placeholder implementation.
+        Check if a user is subscribed to the required channel.
+        This method handles both Update objects and user_id integers.
         """
-        logger.info(f"SubscriptionHandlers.check_subscription_status called for user_id: {user_id}")
-        # Delegate to the subscription_service for the actual check
-        if self.subscription_service:
-            return self.subscription_service.check_subscription(user_id)
-        logger.warning(f"SubscriptionService not available in SubscriptionHandlers for check_subscription_status for user_id: {user_id}")
-        return False
-
-
-
-
-    async def check_subscription_status(self, update: Update, context: CallbackContext):
-        """
-        Checks if the user has an active bot subscription and is subscribed to the mandatory channel (if any).
-        This method is intended to be used by decorators or internal checks.
-        Returns True if all checks pass, False otherwise.
-        It does NOT send messages to the user; the caller (e.g., decorator) should handle that.
-        """
-        user = update.effective_user
-        if not user:
-            logger.warning("check_subscription_status called with no effective_user in update.")
+        try:
+            required_channel = channel_subscription.get_required_channel()
+            if not required_channel:
+                return True  # No channel required
+            
+            is_subscribed, _ = await channel_subscription.check_user_subscription(user_id, bot)
+            return is_subscribed
+        except Exception as e:
+            logger.error(f"خطأ في التحقق من اشتراك المستخدم في القناة: {str(e)}")
             return False
-        user_id = user.id
-
-        # 1. Check bot subscription
-        if not self.subscription_service.check_subscription(user_id):
-            logger.info(f"User {user_id} failed bot subscription check in SubscriptionHandlers.check_subscription_status.")
-            return False
-
-        # 2. Check mandatory channel subscription
-        # Ensure channel_subscription is imported and available in this scope
-        # from utils.channel_subscription import channel_subscription (should be at top of file)
-        required_channel = channel_subscription.get_required_channel()
-        if required_channel:
-            is_channel_subscribed, _ = await channel_subscription.check_user_subscription(context.bot, user_id)
-            if not is_channel_subscribed:
-                logger.info(f"User {user_id} failed mandatory channel ({required_channel}) subscription check in SubscriptionHandlers.check_subscription_status.")
-                return False
-        
-        logger.info(f"User {user_id} passed all subscription checks in SubscriptionHandlers.check_subscription_status.")
-        return True
-
