@@ -21,16 +21,6 @@ def on_startup():
     """
     logger.info("Bot is starting up...")
     
-    # حذف علامة الإيقاف إذا كانت موجودة لضمان استئناف مهام النشر
-    data_dir = 'data'
-    shutdown_marker_file = os.path.join(data_dir, 'bot_shutdown_marker')
-    if os.path.exists(shutdown_marker_file):
-        try:
-            os.remove(shutdown_marker_file)
-            logger.info(f"تم حذف علامة الإيقاف عند بدء التشغيل: {shutdown_marker_file}")
-        except Exception as e:
-            logger.error(f"خطأ في حذف علامة الإيقاف: {str(e)}")
-    
     # وضع علامة على إعادة تشغيل البوت
     mark_restart()
     
