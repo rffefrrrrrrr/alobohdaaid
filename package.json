@@ -1,4 +1,4 @@
-{
+erfer{
   "name": "telegram-bot",
   "version": "1.0.0",
   "description": "Telegram Bot with Keepalive",
@@ -8,5 +8,5 @@
   },
   "dependencies": {
     "requests": "latest" 
-  }yyhhhhh
+  }
 }
