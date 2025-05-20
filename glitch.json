@@ -1,4 +1,4 @@
-wrer{tretr
+{
   "start": "bash run_persistently.sh",
   "install": "pip3 install -r requirements.txt"
 }

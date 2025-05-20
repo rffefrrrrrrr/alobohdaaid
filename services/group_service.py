@@ -1,4 +1,10 @@
-]import logging
+import sys
+import os
+
+# إضافة مسار المشروع الرئيسي إلى PYTHONPATH
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import logging
 from database.db import Database
 from config.config import API_ID, API_HASH # Import default API credentials
 import datetime
