@@ -24,3 +24,7 @@ REQUIRED_CHANNEL_USERNAME = os.getenv("REQUIRED_CHANNEL_USERNAME", "")
 # معلومات API تيليجرام
 API_ID = int(os.getenv("API_ID", "12345"))
 API_HASH = os.getenv("API_HASH", "0123456789abcdef0123456789abcdef")
+
+# إضافة متغيرات بديلة للتوافق مع الكود القديم والبيئة في Glitch
+TELEGRAM_API_ID = API_ID
+TELEGRAM_API_HASH = API_HASH
