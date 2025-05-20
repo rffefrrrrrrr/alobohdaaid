@@ -18,24 +18,6 @@
         "message_id": null,
         "is_recurring": true
     },
-    "7207131508_1747768750.4707725": {
-        "user_id": 7207131508,
-        "post_id": "1747768750.4707627",
-        "message": "متوفر بوت نشر تلقائي اشتراك شهري ✨\nب2$ \nتريد تجربه مجانيه؟ شوف بايو\n\nمتوفر نتفلكس / شاهد / سبوتيفاي  / حسابات ستيم  / osn \nتعال خاصي فقط\n\nمتوفر انشاءات انستا 2012\n\n\nمتوفر اصنع لك اي نوع من بوتات تيليجرام \n\n\nمتوفر اعلان لك يوم كامل\n\nب50  سنت",
-        "group_ids": [
-            "-1001699992849",
-            "-1001599134989",
-            "-1001894777304"
-        ],
-        "delay_seconds": 250,
-        "exact_time": null,
-        "status": "running",
-        "start_time": "2025-05-20T19:19:10.470776",
-        "last_activity": "2025-05-20T22:13:52.732021",
-        "message_count": 132,
-        "message_id": null,
-        "is_recurring": true
-    },
     "6744224791_1747771460.9119983": {
         "user_id": 6744224791,
         "post_id": "1747771460.911988",
@@ -61,8 +43,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-20T20:04:20.912003",
-        "last_activity": "2025-05-20T22:12:44.103612",
-        "message_count": 155,
+        "last_activity": "2025-05-20T22:26:05.291766",
+        "message_count": 170,
         "message_id": null,
         "is_recurring": true
     },
@@ -77,8 +59,30 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-20T20:48:37.629049",
-        "last_activity": "2025-05-20T22:13:54.444972",
-        "message_count": 18,
+        "last_activity": "2025-05-20T22:23:56.241540",
+        "message_count": 20,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "7207131508_1747779525.418827": {
+        "user_id": 7207131508,
+        "post_id": "1747779525.4188135",
+        "message": "متوفر مسابقه علي حساب نتفلكس كامل ب ايميلك و اعلي جوده تبي تشارك خاصي",
+        "group_ids": [
+            "-1001599134989",
+            "-1001894777304",
+            "-1001699992849",
+            "-1001663822591",
+            "-1002533048637",
+            "-1001351166875",
+            "-1002504204299"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-20T22:18:45.418831",
+        "last_activity": "2025-05-20T22:23:47.604068",
+        "message_count": 13,
         "message_id": null,
         "is_recurring": true
     }
