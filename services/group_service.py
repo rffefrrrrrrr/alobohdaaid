@@ -42,7 +42,8 @@ class GroupService:
                     'title': title,
                     'username': username,
                     'description': description,
-                    'member_count': member_count
+                    'member_count': member_count,
+                    'is_current': True  # علامة لتمييز المجموعات الحالية
                 }},
                 upsert=True
             )
@@ -125,7 +126,7 @@ class GroupService:
             groups = self.groups_collection.find({'user_id': user_id})
             for group in groups:
                 self.groups_collection.update_one(
-                    {'id': group['id']},
+                    {'_id': group['_id']},  # استخدام _id بدلاً من id
                     {'$set': {'blacklisted': False}}
                 )
             return True
@@ -140,7 +141,7 @@ class GroupService:
             groups = self.groups_collection.find({'user_id': user_id})
             for group in groups:
                 self.groups_collection.update_one(
-                    {'id': group['id']},
+                    {'_id': group['_id']},  # استخدام _id بدلاً من id
                     {'$set': {'blacklisted': True}}
                 )
             return True
@@ -158,6 +159,21 @@ class GroupService:
             return True
         except Exception as e:
             logger.error(f"Error deleting group: {str(e)}")
+            return False
+            
+    def delete_all_user_groups(self, user_id):
+        """Delete all groups for a user"""
+        try:
+            # حذف جميع المجموعات للمستخدم
+            count = 0
+            groups = self.groups_collection.find({'user_id': user_id})
+            for group in groups:
+                self.groups_collection.delete_one({'_id': group['_id']})
+                count += 1
+            logger.info(f"Deleted all {count} groups for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting all groups for user {user_id}: {str(e)}")
             return False
 
     async def fetch_user_groups(self, user_id):
@@ -214,6 +230,15 @@ class GroupService:
             if not await client.is_user_authorized():
                 await client.disconnect()
                 return False, "انتهت صلاحية الجلسة. يرجى تسجيل الدخول مرة أخرى.", None
+
+            # حذف جميع المجموعات القديمة للمستخدم قبل إضافة المجموعات الجديدة
+            # هذا سيضمن أن المجموعات المعروضة هي دائماً المجموعات المحدثة
+            try:
+                # حذف جميع المجموعات القديمة
+                self.delete_all_user_groups(user_id)
+                logger.info(f"Deleted all old groups for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error deleting old groups for user {user_id}: {str(e)}")
 
             # Get dialogs (chats and groups)
             dialogs = await client.get_dialogs()
