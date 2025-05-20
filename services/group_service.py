@@ -36,6 +36,7 @@ class GroupService:
     def add_group(self, user_id, group_id, title, username=None, description=None, member_count=0):
         """Add or update a group"""
         try:
+            # تحديث أو إضافة المجموعة
             result = self.groups_collection.update_one(
                 {'user_id': user_id, 'group_id': group_id},
                 {'$set': {
@@ -43,7 +44,7 @@ class GroupService:
                     'username': username,
                     'description': description,
                     'member_count': member_count,
-                    'is_current': True  # علامة لتمييز المجموعات الحالية
+                    'refresh_timestamp': self.db.get_current_timestamp()  # إضافة طابع زمني للتحديث
                 }},
                 upsert=True
             )
@@ -162,18 +163,35 @@ class GroupService:
             return False
             
     def delete_all_user_groups(self, user_id):
-        """Delete all groups for a user"""
+        """Delete all groups for a user directly from the database"""
         try:
-            # حذف جميع المجموعات للمستخدم
-            count = 0
-            groups = self.groups_collection.find({'user_id': user_id})
-            for group in groups:
-                self.groups_collection.delete_one({'_id': group['_id']})
-                count += 1
-            logger.info(f"Deleted all {count} groups for user {user_id}")
+            # استخدام اتصال قاعدة البيانات المباشر لحذف المجموعات
+            cursor = self.db.conn.cursor()
+            cursor.execute("DELETE FROM groups WHERE user_id = ?", (user_id,))
+            self.db.conn.commit()
+            deleted_count = cursor.rowcount
+            cursor.close()
+            
+            logger.info(f"Directly deleted {deleted_count} groups for user {user_id} from database")
             return True
         except Exception as e:
-            logger.error(f"Error deleting all groups for user {user_id}: {str(e)}")
+            logger.error(f"Error directly deleting all groups for user {user_id}: {str(e)}")
+            return False
+
+    def clean_database_groups(self, user_id):
+        """تنظيف قاعدة البيانات من المجموعات القديمة للمستخدم"""
+        try:
+            # حذف مباشر من قاعدة البيانات
+            cursor = self.db.conn.cursor()
+            cursor.execute("DELETE FROM groups WHERE user_id = ?", (user_id,))
+            self.db.conn.commit()
+            deleted_count = cursor.rowcount
+            cursor.close()
+            
+            logger.info(f"Database cleanup: Deleted {deleted_count} old groups for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error cleaning database groups for user {user_id}: {str(e)}")
             return False
 
     async def fetch_user_groups(self, user_id):
@@ -232,14 +250,9 @@ class GroupService:
                 return False, "انتهت صلاحية الجلسة. يرجى تسجيل الدخول مرة أخرى.", None
 
             # حذف جميع المجموعات القديمة للمستخدم قبل إضافة المجموعات الجديدة
-            # هذا سيضمن أن المجموعات المعروضة هي دائماً المجموعات المحدثة
-            try:
-                # حذف جميع المجموعات القديمة
-                self.delete_all_user_groups(user_id)
-                logger.info(f"Deleted all old groups for user {user_id}")
-            except Exception as e:
-                logger.error(f"Error deleting old groups for user {user_id}: {str(e)}")
-
+            # استخدام الحذف المباشر من قاعدة البيانات
+            self.clean_database_groups(user_id)
+            
             # Get dialogs (chats and groups)
             dialogs = await client.get_dialogs()
 
@@ -266,7 +279,7 @@ class GroupService:
                     }
                     groups.append(group_data)
 
-                    # Save to database
+                    # Save to database with refresh timestamp
                     self.add_group(
                         user_id=user_id,
                         group_id=group_data['id'],
