@@ -31,8 +31,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-20T19:19:10.470776",
-        "last_activity": "2025-05-20T20:41:51.016832",
-        "message_count": 66,
+        "last_activity": "2025-05-20T20:54:24.026308",
+        "message_count": 75,
         "message_id": null,
         "is_recurring": true
     },
@@ -61,8 +61,24 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-20T20:04:20.912003",
-        "last_activity": "2025-05-20T20:39:14.483896",
-        "message_count": 49,
+        "last_activity": "2025-05-20T20:52:35.825784",
+        "message_count": 63,
+        "message_id": null,
+        "is_recurring": true
+    },
+    "6459577996_1747774117.6290452": {
+        "user_id": 6459577996,
+        "post_id": "1747774117.6290329",
+        "message": "او اس ان (باركود) بـ 6 ريال ✅\nأمازون برايم فيديو شهر بـ 3.5 ريال ✅\nنتفليكس شاشة واحدة أسبوعين+ بـ 2 ريال ✅\nشاهد VIP رياضية 3 شهور بـ 15 ريال (متبقي اشتراك واحد) ⚠️\nقروبات تيليجرام 2021 – أكثر من قروب متاح ✅\nأتعامل فقط مع البنوك السعودية – الصامل يتفضل.\n\nتواصلو مع\n\n@ srouin",
+        "group_ids": [
+            "-1001599134989"
+        ],
+        "delay_seconds": 300,
+        "exact_time": null,
+        "status": "running",
+        "start_time": "2025-05-20T20:48:37.629049",
+        "last_activity": "2025-05-20T20:53:40.045547",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     }
