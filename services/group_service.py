@@ -1,6 +1,7 @@
 import logging
 from database.db import Database
 from config.config import API_ID, API_HASH # Import default API credentials
+import datetime
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -36,15 +37,14 @@ class GroupService:
     def add_group(self, user_id, group_id, title, username=None, description=None, member_count=0):
         """Add or update a group"""
         try:
-            # تحديث أو إضافة المجموعة
+            # تحديث أو إضافة المجموعة - بدون استخدام refresh_timestamp
             result = self.groups_collection.update_one(
                 {'user_id': user_id, 'group_id': group_id},
                 {'$set': {
                     'title': title,
                     'username': username,
                     'description': description,
-                    'member_count': member_count,
-                    'refresh_timestamp': self.db.get_current_timestamp()  # إضافة طابع زمني للتحديث
+                    'member_count': member_count
                 }},
                 upsert=True
             )
@@ -279,7 +279,7 @@ class GroupService:
                     }
                     groups.append(group_data)
 
-                    # Save to database with refresh timestamp
+                    # Save to database without refresh timestamp
                     self.add_group(
                         user_id=user_id,
                         group_id=group_data['id'],
