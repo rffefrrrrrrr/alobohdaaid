@@ -269,7 +269,7 @@ class GroupHandlers:
         groups = sorted(groups, key=lambda x: x.get('title', '').lower())
         
         # حساب إجمالي عدد الصفحات
-        total_pages = (len(groups) + self.GROUPS_PER_PAGE - 1) // self.GROUPS_PER_PAGE
+        total_pages = max(1, (len(groups) + self.GROUPS_PER_PAGE - 1) // self.GROUPS_PER_PAGE)
         
         # التأكد من أن رقم الصفحة الحالية صالح
         if self.user_page_state[user_id] >= total_pages:
@@ -349,7 +349,7 @@ class GroupHandlers:
         groups = sorted(groups, key=lambda x: x.get('title', '').lower())
         
         # حساب إجمالي عدد الصفحات
-        total_pages = (len(groups) + self.GROUPS_PER_PAGE - 1) // self.GROUPS_PER_PAGE
+        total_pages = max(1, (len(groups) + self.GROUPS_PER_PAGE - 1) // self.GROUPS_PER_PAGE)
         
         # التأكد من أن رقم الصفحة الحالية صالح
         if self.user_page_state[user_id] >= total_pages:
