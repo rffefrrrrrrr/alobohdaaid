@@ -42,7 +42,7 @@ class GroupHandlers:
         if not groups:
             # No groups found, offer to fetch them
             keyboard = [
-                [InlineKeyboardButton("🔴 🟢 جلب المجموعات", callback_data="group_refresh")]
+                [InlineKeyboardButton("🔄 تحديث المجموعات", callback_data="group_refresh")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -53,8 +53,8 @@ class GroupHandlers:
             )
             return
 
-        # Create keyboard with groups
-        await self.send_groups_keyboard(update, context, groups)
+        # Create keyboard with groups (with pagination)
+        await self.send_groups_keyboard(update, context, groups, page=0)
 
     @subscription_required
     async def refresh_groups_command(self, update: Update, context: CallbackContext):
@@ -92,8 +92,8 @@ class GroupHandlers:
                             'blacklisted': False  # افتراضياً، المجموعات غير محظورة
                         })
 
-                # إظهار المجموعات مباشرة
-                await self.send_groups_keyboard(update, context, db_groups)
+                # إظهار المجموعات مباشرة (مع التصفح)
+                await self.send_groups_keyboard(update, context, db_groups, page=0)
             else:
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -143,8 +143,8 @@ class GroupHandlers:
                                 'blacklisted': False  # افتراضياً، المجموعات غير محظورة
                             })
 
-                    # إظهار المجموعات مباشرة
-                    await self.send_groups_keyboard(update, context, db_groups)
+                    # إظهار المجموعات مباشرة (مع التصفح)
+                    await self.send_groups_keyboard(update, context, db_groups, page=0)
                 else:
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
@@ -181,11 +181,16 @@ class GroupHandlers:
             success, is_blacklisted = self.group_service.toggle_group_blacklist(user_id, group_id)
 
             if success:
-                # Get updated groups
+                # Get updated groups from database
                 groups = self.group_service.get_user_groups(user_id)
-
-                # Update keyboard
-                await self.update_groups_keyboard(query, groups)
+                
+                # Get current page from callback data if available
+                current_page = 0
+                if hasattr(context, 'user_data') and 'current_page' in context.user_data:
+                    current_page = context.user_data['current_page']
+                
+                # Update keyboard with the same page
+                await self.update_groups_keyboard(query, groups, page=current_page)
             else:
                 await query.edit_message_text(
                     text="❌ حدث خطأ أثناء تحديث حالة المجموعة."
@@ -206,11 +211,16 @@ class GroupHandlers:
             success = self.group_service.select_all_groups(user_id)
 
             if success:
-                # Get updated groups
+                # Get updated groups from database
                 groups = self.group_service.get_user_groups(user_id)
-
-                # Update keyboard
-                await self.update_groups_keyboard(query, groups)
+                
+                # Get current page from callback data if available
+                current_page = 0
+                if hasattr(context, 'user_data') and 'current_page' in context.user_data:
+                    current_page = context.user_data['current_page']
+                
+                # Update keyboard with the same page
+                await self.update_groups_keyboard(query, groups, page=current_page)
             else:
                 await query.edit_message_text(
                     text="❌ حدث خطأ أثناء تحديث حالة المجموعات."
@@ -221,26 +231,66 @@ class GroupHandlers:
             success = self.group_service.deselect_all_groups(user_id)
 
             if success:
-                # Get updated groups
+                # Get updated groups from database
                 groups = self.group_service.get_user_groups(user_id)
-
-                # Update keyboard
-                await self.update_groups_keyboard(query, groups)
+                
+                # Get current page from callback data if available
+                current_page = 0
+                if hasattr(context, 'user_data') and 'current_page' in context.user_data:
+                    current_page = context.user_data['current_page']
+                
+                # Update keyboard with the same page
+                await self.update_groups_keyboard(query, groups, page=current_page)
             else:
                 await query.edit_message_text(
                     text="❌ حدث خطأ أثناء تحديث حالة المجموعات."
                 )
+        
+        # Handle pagination
+        elif data.startswith("group_page_"):
+            try:
+                # Extract page number from callback data
+                page = int(data.split("group_page_")[1])
+                
+                # Store current page in user_data
+                if hasattr(context, 'user_data'):
+                    context.user_data['current_page'] = page
+                
+                # Get groups from database
+                groups = self.group_service.get_user_groups(user_id)
+                
+                # Update keyboard with new page
+                await self.update_groups_keyboard(query, groups, page=page)
+            except (ValueError, IndexError) as e:
+                self.logger.error(f"Error parsing page number: {str(e)}, data: {data}")
+                await query.answer("حدث خطأ في تحديد رقم الصفحة.")
 
-    async def send_groups_keyboard(self, update: Update, context: CallbackContext, groups):
-        """Send keyboard with groups"""
+    async def send_groups_keyboard(self, update: Update, context: CallbackContext, groups, page=0):
+        """Send keyboard with groups with pagination"""
         chat_id = update.effective_chat.id
 
         # Sort groups by title
         groups = sorted(groups, key=lambda x: x.get('title', '').lower())
+        
+        # Store current page in user_data
+        if hasattr(context, 'user_data'):
+            context.user_data['current_page'] = page
+        
+        # Pagination settings
+        page_size = 15  # Number of groups per page
+        total_pages = (len(groups) + page_size - 1) // page_size  # Ceiling division
+        
+        # Ensure page is within valid range
+        page = max(0, min(page, total_pages - 1)) if total_pages > 0 else 0
+        
+        # Get groups for current page
+        start_idx = page * page_size
+        end_idx = min(start_idx + page_size, len(groups))
+        current_page_groups = groups[start_idx:end_idx]
 
-        # Create keyboard with groups
+        # Create keyboard with groups for current page
         keyboard = []
-        for group in groups:
+        for group in current_page_groups:
             # تصحيح: تأكد من أن المجموعة لها عنوان
             title = group.get('title', 'مجموعة بدون اسم')
 
@@ -260,6 +310,27 @@ class GroupHandlers:
             keyboard.append([
                 InlineKeyboardButton(f"{status_emoji} {title}", callback_data=f"group_toggle_{group_id}")
             ])
+
+        # Add pagination controls if needed
+        if total_pages > 1:
+            pagination_row = []
+            
+            # Previous page button
+            if page > 0:
+                pagination_row.append(InlineKeyboardButton("◀️", callback_data=f"group_page_{page-1}"))
+            else:
+                pagination_row.append(InlineKeyboardButton(" ", callback_data="group_noop"))
+            
+            # Page indicator
+            pagination_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="group_noop"))
+            
+            # Next page button
+            if page < total_pages - 1:
+                pagination_row.append(InlineKeyboardButton("▶️", callback_data=f"group_page_{page+1}"))
+            else:
+                pagination_row.append(InlineKeyboardButton(" ", callback_data="group_noop"))
+            
+            keyboard.append(pagination_row)
 
         # Add control buttons
         keyboard.append([
@@ -278,21 +349,33 @@ class GroupHandlers:
         # Send message with keyboard
         await context.bot.send_message(
             chat_id=chat_id,
-            text="👥 المجموعات الخاصة بك:\n\n"
+            text=f"👥 المجموعات الخاصة بك ({start_idx+1}-{end_idx} من {len(groups)}):\n\n"
                  "🟢 = مفعلة (سيتم النشر فيها)\n"
                  "🔴 = معطلة (لن يتم النشر فيها)\n\n"
                  "اضغط على المجموعة لتغيير حالتها.",
             reply_markup=reply_markup
         )
 
-    async def update_groups_keyboard(self, query, groups):
-        """Update keyboard with groups"""
+    async def update_groups_keyboard(self, query, groups, page=0):
+        """Update keyboard with groups with pagination"""
         # Sort groups by title
         groups = sorted(groups, key=lambda x: x.get('title', '').lower())
+        
+        # Pagination settings
+        page_size = 15  # Number of groups per page
+        total_pages = (len(groups) + page_size - 1) // page_size  # Ceiling division
+        
+        # Ensure page is within valid range
+        page = max(0, min(page, total_pages - 1)) if total_pages > 0 else 0
+        
+        # Get groups for current page
+        start_idx = page * page_size
+        end_idx = min(start_idx + page_size, len(groups))
+        current_page_groups = groups[start_idx:end_idx]
 
-        # Create keyboard with groups
+        # Create keyboard with groups for current page
         keyboard = []
-        for group in groups:
+        for group in current_page_groups:
             # تصحيح: تأكد من أن المجموعة لها عنوان
             title = group.get('title', 'مجموعة بدون اسم')
 
@@ -313,6 +396,27 @@ class GroupHandlers:
                 InlineKeyboardButton(f"{status_emoji} {title}", callback_data=f"group_toggle_{group_id}")
             ])
 
+        # Add pagination controls if needed
+        if total_pages > 1:
+            pagination_row = []
+            
+            # Previous page button
+            if page > 0:
+                pagination_row.append(InlineKeyboardButton("◀️", callback_data=f"group_page_{page-1}"))
+            else:
+                pagination_row.append(InlineKeyboardButton(" ", callback_data="group_noop"))
+            
+            # Page indicator
+            pagination_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="group_noop"))
+            
+            # Next page button
+            if page < total_pages - 1:
+                pagination_row.append(InlineKeyboardButton("▶️", callback_data=f"group_page_{page+1}"))
+            else:
+                pagination_row.append(InlineKeyboardButton(" ", callback_data="group_noop"))
+            
+            keyboard.append(pagination_row)
+
         # Add control buttons
         keyboard.append([
             InlineKeyboardButton("🟢 تحديد الكل", callback_data="group_select_all"),
@@ -329,7 +433,7 @@ class GroupHandlers:
 
         # Update message with new keyboard
         await query.edit_message_text(
-            text="👥 المجموعات الخاصة بك:\n\n"
+            text=f"👥 المجموعات الخاصة بك ({start_idx+1}-{end_idx} من {len(groups)}):\n\n"
                  "🟢 = مفعلة (سيتم النشر فيها)\n"
                  "🔴 = معطلة (لن يتم النشر فيها)\n\n"
                  "اضغط على المجموعة لتغيير حالتها.",
