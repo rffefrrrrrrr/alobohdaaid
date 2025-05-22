@@ -99,7 +99,6 @@ def setup_files():
     
     # ملفات السجلات
     log_files = {
-        'logs/bot_output.log': 'https://cdn.glitch.global/50c7fae2-c0c2-479d-9ffa-a6295d582fe6/bot_output.log?v=1745363955189',
         'logs/bot_service.log': 'https://cdn.glitch.global/50c7fae2-c0c2-479d-9ffa-a6295d582fe6/bot_service.log?v=1745363965963',
         'logs/posting_service.log': 'https://cdn.glitch.global/50c7fae2-c0c2-479d-9ffa-a6295d582fe6/posting_service.log?v=1745364049415',
         'logs/watchdog.log': 'https://cdn.glitch.global/50c7fae2-c0c2-479d-9ffa-a6295d582fe6/watchdog.log?v=1745364117783'
