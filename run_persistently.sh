@@ -36,8 +36,8 @@ start_main_bot() {
     fi
     # Clean up stale PID file if process died without removing it
     rm -f "$PID_BOT_FILE"
-    # Start the bot in the background, log its output, and save its PID
-    nohup python3 "$MAIN_BOT_SCRIPT" >> bot_main_output.log 2>&1 &
+    # Start the bot in the background, redirect output to /dev/null instead of log file
+    nohup python3 "$MAIN_BOT_SCRIPT" > /dev/null 2>&1 &
     echo $! > "$PID_BOT_FILE"
     log "$MAIN_BOT_SCRIPT started with PID $(cat $PID_BOT_FILE)."
     sleep 2 # Allow some time for the process to initialize
