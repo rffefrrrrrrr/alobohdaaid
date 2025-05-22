@@ -14,8 +14,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-22T02:10:07.000861",
-        "last_activity": "2025-05-22T02:10:07.875904",
-        "message_count": 4,
+        "last_activity": "2025-05-22T02:20:10.521893",
+        "message_count": 13,
         "message_id": null,
         "is_recurring": true
     },
@@ -30,8 +30,8 @@
         "exact_time": null,
         "status": "running",
         "start_time": "2025-05-22T02:10:39.853447",
-        "last_activity": "2025-05-22T02:10:40.653660",
-        "message_count": 1,
+        "last_activity": "2025-05-22T02:17:21.579673",
+        "message_count": 2,
         "message_id": null,
         "is_recurring": true
     }
