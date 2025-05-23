@@ -863,10 +863,17 @@ class PostingHandlers:
 
     # --- Other handlers (status, stop, etc. - Original Code Unchanged) ---
     async def check_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Check posting status (Original Code - Unchanged)"""
+        """Check posting status (Original Code - Modified for Debug Logging)"""
         user_id = update.effective_user.id
-        status_message = await self.posting_service.get_user_posting_status(user_id)
-        await update.message.reply_text(status_message, parse_mode="Markdown")
+        self.logger.info(f"Executing /status command for user_id: {user_id}") # Added log
+        try:
+            status_message = await self.posting_service.get_user_posting_status(user_id)
+            self.logger.info(f"/status: Received status message: {status_message[:100]}...") # Added log
+            await update.message.reply_text(status_message, parse_mode="Markdown")
+            self.logger.info(f"/status command completed successfully for user_id: {user_id}") # Added log
+        except Exception as e:
+            self.logger.error(f"Error executing /status command for user_id {user_id}: {e}", exc_info=True) # Added log
+            await update.message.reply_text("❌ حدث خطأ أثناء التحقق من الحالة. يرجى المحاولة مرة أخرى.", parse_mode="Markdown") # Added error message
 
     async def stop_posting_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Command to initiate stopping posts (Original Code - Unchanged)"""
