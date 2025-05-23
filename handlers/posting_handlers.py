@@ -67,6 +67,11 @@ class PostingHandlers:
                     CallbackQueryHandler(self.handle_select_all_groups, pattern=r'^select_all_groups$'),
                     CallbackQueryHandler(self.handle_confirm_groups, pattern=r'^confirm_groups$'),
                     CallbackQueryHandler(self.handle_cancel, pattern=r'^cancel$'),
+                    # إضافة معالجات للتنقل بين الصفحات
+                    CallbackQueryHandler(self.handle_next_page, pattern=r'^next_page$'),
+                    CallbackQueryHandler(self.handle_prev_page, pattern=r'^prev_page$'),
+                    # معالج لزر مؤشر الصفحة (لا يفعل شيئًا)
+                    CallbackQueryHandler(self.handle_page_indicator, pattern=r'^page_indicator$'),
                 ],
                 self.ENTER_MESSAGE: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message),
@@ -160,6 +165,137 @@ class PostingHandlers:
                     text=f"❌ {result_message}"
                 )
 
+    def get_groups_for_current_page(self, all_groups, current_page, groups_per_page):
+        """استخراج المجموعات للصفحة الحالية"""
+        start_idx = (current_page - 1) * groups_per_page
+        end_idx = start_idx + groups_per_page
+        return all_groups[start_idx:end_idx]
+
+    async def handle_page_indicator(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالج زر مؤشر الصفحة (لا يفعل شيئًا)"""
+        query = update.callback_query
+        await query.answer("هذا مؤشر للصفحة الحالية فقط")
+        return self.SELECT_GROUP
+
+    async def handle_next_page(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالج الانتقال إلى الصفحة التالية"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # زيادة رقم الصفحة الحالية
+            current_page = context.user_data.get('current_page', 1)
+            total_pages = context.user_data.get('total_pages', 1)
+            
+            if current_page < total_pages:
+                context.user_data['current_page'] = current_page + 1
+            
+            # تحديث عرض المجموعات
+            await self.update_groups_display(update, context)
+            return self.SELECT_GROUP
+        except Exception as e:
+            self.logger.error(f"Error in handle_next_page: {str(e)}")
+            await query.edit_message_text("❌ *حدث خطأ أثناء الانتقال إلى الصفحة التالية. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            return ConversationHandler.END
+
+    async def handle_prev_page(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالج الانتقال إلى الصفحة السابقة"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # تقليل رقم الصفحة الحالية
+            current_page = context.user_data.get('current_page', 1)
+            
+            if current_page > 1:
+                context.user_data['current_page'] = current_page - 1
+            
+            # تحديث عرض المجموعات
+            await self.update_groups_display(update, context)
+            return self.SELECT_GROUP
+        except Exception as e:
+            self.logger.error(f"Error in handle_prev_page: {str(e)}")
+            await query.edit_message_text("❌ *حدث خطأ أثناء الانتقال إلى الصفحة السابقة. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            return ConversationHandler.END
+
+    async def update_groups_display(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """تحديث عرض المجموعات بناءً على الصفحة الحالية"""
+        try:
+            query = update.callback_query
+            
+            # الحصول على المتغيرات اللازمة
+            user_id = update.effective_user.id
+            current_page = context.user_data.get('current_page', 1)
+            groups_per_page = context.user_data.get('groups_per_page', 15)
+            total_pages = context.user_data.get('total_pages', 1)
+            available_groups = context.user_data.get('available_groups', [])
+            
+            # تأكد من وجود قائمة المجموعات المحددة للمستخدم
+            if user_id not in self.user_selected_groups:
+                self.user_selected_groups[user_id] = []
+            
+            selected_groups = self.user_selected_groups[user_id]
+            
+            # تحويل جميع معرفات المجموعات إلى نصوص لضمان المقارنة الصحيحة
+            selected_groups = [str(g_id) for g_id in selected_groups]
+            
+            # الحصول على المجموعات للصفحة الحالية
+            page_groups = self.get_groups_for_current_page(available_groups, current_page, groups_per_page)
+            
+            # إنشاء لوحة المفاتيح
+            keyboard = []
+            
+            # إضافة المجموعات للصفحة الحالية
+            for group in page_groups:
+                group_id = str(group.get('group_id'))
+                group_name = group.get('title', 'مجموعة بدون اسم')
+                
+                if group_id in selected_groups:
+                    keyboard.append([InlineKeyboardButton(f"🔵 {group_name}", callback_data=f"group:{group_id}")])
+                else:
+                    keyboard.append([InlineKeyboardButton(f"⚪ {group_name}", callback_data=f"group:{group_id}")])
+            
+            # إضافة أزرار التنقل بين الصفحات
+            navigation_buttons = []
+            if current_page > 1:
+                navigation_buttons.append(InlineKeyboardButton("➡️ الصفحة السابقة", callback_data="prev_page"))
+            if current_page < total_pages:
+                navigation_buttons.append(InlineKeyboardButton("الصفحة التالية ⬅️", callback_data="next_page"))
+            if navigation_buttons:
+                keyboard.append(navigation_buttons)
+            
+            # إضافة مؤشر الصفحة الحالية
+            keyboard.append([InlineKeyboardButton(f"صفحة {current_page} من {total_pages}", callback_data="page_indicator")])
+            
+            # إضافة زر تحديد الكل
+            all_group_ids = [str(group.get('group_id')) for group in available_groups]
+            
+            # تحقق من حالة تحديد الكل
+            if set(selected_groups) == set(all_group_ids):
+                select_all_text = "🟢 إلغاء تحديد الكل"
+            else:
+                select_all_text = "🔴 تحديد الكل"
+            
+            keyboard.append([InlineKeyboardButton(select_all_text, callback_data="select_all_groups")])
+            
+            # إضافة أزرار التأكيد والإلغاء
+            keyboard.append([InlineKeyboardButton("✅ تأكيد المجموعات المحددة", callback_data="confirm_groups")])
+            keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
+            
+            # إنشاء لوحة المفاتيح
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # تحديث الرسالة
+            await query.edit_message_text(
+                f"🔍 *يرجى اختيار المجموعات التي ترغب في النشر فيها (تم اختيار {len(selected_groups)} مجموعة):*",
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            self.logger.error(f"Error in update_groups_display: {str(e)}")
+            # لا نريد إنهاء المحادثة هنا، فقط تسجيل الخطأ
+            pass
+
     async def start_post(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start the posting process"""
         try:
@@ -173,12 +309,35 @@ class PostingHandlers:
                 await update.message.reply_text("📱 *لم يتم العثور على أي مجموعات نشطة. يرجى إضافة مجموعات أولاً.*", parse_mode="Markdown")
                 return ConversationHandler.END
 
-            # Create keyboard with groups
+            # تهيئة متغيرات الصفحة
+            context.user_data['current_page'] = 1
+            context.user_data['groups_per_page'] = 15
+            context.user_data['total_pages'] = (len(groups) + 14) // 15  # تقريب لأعلى
+            
+            # الحصول على المجموعات للصفحة الحالية
+            current_page = context.user_data['current_page']
+            groups_per_page = context.user_data['groups_per_page']
+            total_pages = context.user_data['total_pages']
+            page_groups = self.get_groups_for_current_page(groups, current_page, groups_per_page)
+
+            # Create keyboard with groups for current page
             keyboard = []
-            for group in groups:
+            for group in page_groups:
                 group_id = str(group.get('group_id'))  # تصحيح: تحويل معرف المجموعة إلى نص
                 group_name = group.get('title', 'مجموعة بدون اسم')
                 keyboard.append([InlineKeyboardButton(f"⚪ {group_name}", callback_data=f"group:{group_id}")])
+
+            # إضافة أزرار التنقل بين الصفحات
+            navigation_buttons = []
+            if current_page > 1:
+                navigation_buttons.append(InlineKeyboardButton("➡️ الصفحة السابقة", callback_data="prev_page"))
+            if current_page < total_pages:
+                navigation_buttons.append(InlineKeyboardButton("الصفحة التالية ⬅️", callback_data="next_page"))
+            if navigation_buttons:
+                keyboard.append(navigation_buttons)
+            
+            # إضافة مؤشر الصفحة الحالية
+            keyboard.append([InlineKeyboardButton(f"صفحة {current_page} من {total_pages}", callback_data="page_indicator")])
 
             # إضافة زر تحديد الكل - تصحيح: تغيير اللون إلى أحمر
             keyboard.append([InlineKeyboardButton("🔴 تحديد الكل", callback_data="select_all_groups")])
@@ -260,41 +419,8 @@ class PostingHandlers:
             self.user_selected_groups[user_id] = selected_groups
             context.user_data['selected_groups'] = selected_groups.copy()
 
-            # Create keyboard with groups
-            keyboard = []
-            for group in context.user_data.get('available_groups', []):
-                group_id = str(group.get('group_id'))  # تصحيح: تحويل معرف المجموعة إلى نص
-                group_name = group.get('title', 'مجموعة بدون اسم')
-
-                # تصحيح: استخدام اللون الأزرق للمجموعات المحددة والأبيض للمجموعات غير المحددة
-                if group_id in selected_groups:
-                    keyboard.append([InlineKeyboardButton(f"🔵 {group_name}", callback_data=f"group:{group_id}")])
-                else:
-                    keyboard.append([InlineKeyboardButton(f"⚪ {group_name}", callback_data=f"group:{group_id}")])
-
-            # تصحيح: تغيير لون زر تحديد الكل بناءً على حالة التحديد
-            # إذا كانت جميع المجموعات محددة، استخدم اللون الأخضر، وإلا استخدم اللون الأحمر
-            all_group_ids = [str(group.get('group_id')) for group in context.user_data.get('available_groups', [])]
-            if set(selected_groups) == set(all_group_ids):
-                select_all_text = "🟢 إلغاء تحديد الكل"
-            else:
-                select_all_text = "🔴 تحديد الكل"
-
-            keyboard.append([InlineKeyboardButton(select_all_text, callback_data="select_all_groups")])
-
-            # Add confirm and cancel buttons
-            keyboard.append([InlineKeyboardButton("✅ تأكيد المجموعات المحددة", callback_data="confirm_groups")])
-            keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
-
-            # Create reply markup
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # Update message
-            await query.edit_message_text(
-                f"🔍 *يرجى اختيار المجموعات التي ترغب في النشر فيها (تم اختيار {len(selected_groups)} مجموعة):*",
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+            # تحديث عرض المجموعات
+            await self.update_groups_display(update, context)
 
             return self.SELECT_GROUP
         except Exception as e:
@@ -338,40 +464,8 @@ class PostingHandlers:
             self.user_selected_groups[user_id] = selected_groups
             context.user_data['selected_groups'] = selected_groups.copy()
 
-            # Create keyboard with groups
-            keyboard = []
-            for group in available_groups:
-                group_id = str(group.get('group_id'))  # تصحيح: تحويل معرف المجموعة إلى نص
-                group_name = group.get('title', 'مجموعة بدون اسم')
-
-                # تصحيح: استخدام اللون الأزرق للمجموعات المحددة والأبيض للمجموعات غير المحددة
-                if group_id in selected_groups:
-                    keyboard.append([InlineKeyboardButton(f"🔵 {group_name}", callback_data=f"group:{group_id}")])
-                else:
-                    keyboard.append([InlineKeyboardButton(f"⚪ {group_name}", callback_data=f"group:{group_id}")])
-
-            # تصحيح: تغيير لون زر تحديد الكل بناءً على حالة التحديد
-            # إذا كانت جميع المجموعات محددة، استخدم اللون الأخضر، وإلا استخدم اللون الأحمر
-            if selected_groups and set(selected_groups) == set(all_group_ids):
-                select_all_text = "🟢 إلغاء تحديد الكل"
-            else:
-                select_all_text = "🔴 تحديد الكل"
-
-            keyboard.append([InlineKeyboardButton(select_all_text, callback_data="select_all_groups")])
-
-            # Add confirm and cancel buttons
-            keyboard.append([InlineKeyboardButton("✅ تأكيد المجموعات المحددة", callback_data="confirm_groups")])
-            keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel")])
-
-            # Create reply markup
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # Update message
-            await query.edit_message_text(
-                f"🔍 *يرجى اختيار المجموعات التي ترغب في النشر فيها (تم اختيار {len(selected_groups)} مجموعة):*",
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+            # تحديث عرض المجموعات
+            await self.update_groups_display(update, context)
 
             return self.SELECT_GROUP
         except Exception as e:
@@ -398,31 +492,17 @@ class PostingHandlers:
             # تحويل جميع معرفات المجموعات إلى نصوص لضمان المقارنة الصحيحة
             selected_groups = [str(g_id) for g_id in selected_groups]
 
-            # Check if any groups are selected
             if not selected_groups:
-                await query.edit_message_text(
-                    "⚠️ *يرجى اختيار مجموعة واحدة على الأقل.*",
-                    parse_mode="Markdown"
-                )
+                await query.edit_message_text("⚠️ *يرجى اختيار مجموعة واحدة على الأقل للنشر.*", parse_mode="Markdown")
                 return self.SELECT_GROUP
 
-            # Get available groups
-            available_groups = context.user_data.get('available_groups', [])
+            # تحسين: تخزين المجموعات المحددة في context.user_data
+            context.user_data['selected_groups'] = selected_groups.copy()
 
-            # Create list of selected group objects
-            selected_group_objects = []
-            for group in available_groups:
-                group_id = str(group.get('group_id'))
-                if group_id in selected_groups:
-                    selected_group_objects.append(group)
-
-            # Store selected group objects in context
-            context.user_data['selected_group_objects'] = selected_group_objects
-
-            # Update message
+            # Ask for message
             await query.edit_message_text(
                 f"✅ *تم اختيار {len(selected_groups)} مجموعة.*\n\n"
-                f"📝 *يرجى إدخال الرسالة التي ترغب في نشرها:*",
+                "📝 *يرجى إدخال الرسالة التي ترغب في نشرها:*",
                 parse_mode="Markdown"
             )
 
@@ -433,12 +513,9 @@ class PostingHandlers:
             return ConversationHandler.END
 
     async def handle_text_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle text input"""
-        # This is a fallback handler for text input in SELECT_GROUP state
-        await update.message.reply_text(
-            "⚠️ *يرجى استخدام الأزرار لاختيار المجموعات.*",
-            parse_mode="Markdown"
-        )
+        """Handle text input during group selection"""
+        # تجاهل المدخلات النصية في مرحلة اختيار المجموعات
+        await update.message.reply_text("🔍 *يرجى استخدام الأزرار لاختيار المجموعات.*", parse_mode="Markdown")
         return self.SELECT_GROUP
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -447,24 +524,18 @@ class PostingHandlers:
             # Get message text
             message_text = update.message.text
 
-            # Check if message is empty
-            if not message_text or message_text.strip() == "":
-                await update.message.reply_text(
-                    "⚠️ *الرسالة لا يمكن أن تكون فارغة. يرجى إدخال رسالة صالحة.*",
-                    parse_mode="Markdown"
-                )
-                return self.ENTER_MESSAGE
-
             # Store message in context
             context.user_data['message'] = message_text
 
-            # Create keyboard
+            # Create keyboard for timing options
             keyboard = [
-                [InlineKeyboardButton("⏱ نشر تلقائي", callback_data="timing_type:delay")],
-                [InlineKeyboardButton("🕒 نشر في وقت محدد", callback_data="timing_type:exact")],
-                [InlineKeyboardButton("🚀 نشر الآن", callback_data="timing_type:now")],
+                [InlineKeyboardButton("🕒 تحديد وقت محدد", callback_data="timing_type:exact")],
+                [InlineKeyboardButton("⏱ تحديد فاصل زمني متكرر", callback_data="timing_type:interval")],
+                [InlineKeyboardButton("🚀 نشر فوري (مرة واحدة)", callback_data="timing_type:now")],
                 [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
             ]
+
+            # Create reply markup
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             # Send message
@@ -486,385 +557,376 @@ class PostingHandlers:
             query = update.callback_query
             await query.answer()
 
-            # Get timing type
+            # Get timing type from callback data
             timing_type = query.data.split(':')[1]
 
             # Store timing type in context
             context.user_data['timing_type'] = timing_type
 
-            if timing_type == "exact":
-                # Exact time
+            if timing_type == 'exact':
+                # Ask for exact time
                 await query.edit_message_text(
-                    "🕒 *يرجى إدخال الوقت المحدد للنشر بالتنسيق التالي:*\n\n"
-                    "YYYY-MM-DD HH:MM\n\n"
-                    "مثال: 2023-01-01 12:00",
+                    "🕒 *يرجى إدخال الوقت المحدد بالتنسيق التالي:*\n"
+                    "YYYY-MM-DD HH:MM:SS\n"
+                    "مثال: 2023-12-31 23:59:59",
                     parse_mode="Markdown"
                 )
                 return self.SET_EXACT_TIME
-            elif timing_type == "delay":
-                # Delay
+            elif timing_type == 'interval':
+                # Ask for delay
                 await query.edit_message_text(
-                    "⏱ *يرجى إدخال التأخير بين الرسائل بالثواني:*\n\n"
-                    "مثال: 60 (للتأخير لمدة دقيقة واحدة)",
+                    "⏱ *يرجى إدخال الفاصل الزمني بالثواني:*\n"
+                    "مثال: 3600 (للنشر كل ساعة)",
                     parse_mode="Markdown"
                 )
                 return self.SET_DELAY
+            elif timing_type == 'now':
+                # Set default values for immediate posting
+                context.user_data['exact_time'] = None
+                context.user_data['delay_seconds'] = None
+                context.user_data['is_recurring'] = False
+
+                # Show confirmation
+                return await self.show_confirmation(update, context)
             else:
-                # Now
-                context.user_data['timing'] = "now"
-
-                # Create confirmation message
-                selected_groups = context.user_data.get('selected_group_objects', [])
-                message = context.user_data.get('message', '')
-
-                confirmation_text = "📋 *تأكيد النشر:*\n\n"
-                confirmation_text += f"👥 *المجموعات:* {len(selected_groups)} مجموعة\n"
-                confirmation_text += f"📝 *الرسالة:*\n{message}\n\n"
-                confirmation_text += f"⏰ *التوقيت:* الآن\n\n"
-                confirmation_text += "هل تريد المتابعة؟"
-
-                # Create keyboard
-                keyboard = [
-                    [InlineKeyboardButton("✅ تأكيد", callback_data="confirm_posting")],
-                    [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                # Update message
-                await query.edit_message_text(
-                    confirmation_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-                return self.CONFIRM_POSTING
+                # Invalid timing type
+                await query.edit_message_text("❌ *نوع توقيت غير صالح. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+                return ConversationHandler.END
         except Exception as e:
             self.logger.error(f"Error in handle_timing_type: {str(e)}")
-            await query.edit_message_text("❌ *حدث خطأ أثناء اختيار نوع التوقيت. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            await query.edit_message_text("❌ *حدث خطأ أثناء معالجة نوع التوقيت. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
             return ConversationHandler.END
 
     async def set_exact_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle exact time input"""
         try:
-            # Get exact time
-            exact_time = update.message.text
+            # Get exact time text
+            exact_time_text = update.message.text
 
-            # Validate exact time
             try:
                 # Parse exact time
-                exact_time_dt = datetime.strptime(exact_time, "%Y-%m-%d %H:%M")
-
-                # Check if exact time is in the future
-                if exact_time_dt <= datetime.now():
-                    await update.message.reply_text(
-                        "⚠️ *يجب أن يكون الوقت المحدد في المستقبل.*",
-                        parse_mode="Markdown"
-                    )
+                exact_time = datetime.strptime(exact_time_text, "%Y-%m-%d %H:%M:%S")
+                
+                # Check if time is in the future
+                if exact_time <= datetime.now():
+                    await update.message.reply_text("⚠️ *يجب أن يكون الوقت المحدد في المستقبل. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
                     return self.SET_EXACT_TIME
-
+                
                 # Store exact time in context
-                context.user_data['timing'] = "exact"
                 context.user_data['exact_time'] = exact_time
-
-                # Create confirmation message
-                selected_groups = context.user_data.get('selected_group_objects', [])
-                message = context.user_data.get('message', '')
-
-                confirmation_text = "📋 *تأكيد النشر:*\n\n"
-                confirmation_text += f"👥 *المجموعات:* {len(selected_groups)} مجموعة\n"
-                confirmation_text += f"📝 *الرسالة:*\n{message}\n\n"
-                confirmation_text += f"⏰ *التوقيت:* {exact_time}\n\n"
-                confirmation_text += "هل تريد المتابعة؟"
-
-                # Create keyboard
-                keyboard = [
-                    [InlineKeyboardButton("✅ تأكيد", callback_data="confirm_posting")],
-                    [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                # Send message
-                await update.message.reply_text(
-                    confirmation_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-                return self.CONFIRM_POSTING
+                context.user_data['delay_seconds'] = None
+                context.user_data['is_recurring'] = False
+                
+                # Show confirmation
+                return await self.show_confirmation(update, context)
             except ValueError:
-                # Invalid exact time format
+                # Invalid date format
                 await update.message.reply_text(
-                    "⚠️ *تنسيق الوقت غير صالح. يرجى استخدام التنسيق التالي:*\n\n"
-                    "YYYY-MM-DD HH:MM\n\n"
-                    "مثال: 2023-01-01 12:00",
+                    "⚠️ *تنسيق التاريخ غير صالح. يرجى استخدام التنسيق التالي:*\n"
+                    "YYYY-MM-DD HH:MM:SS\n"
+                    "مثال: 2023-12-31 23:59:59",
                     parse_mode="Markdown"
                 )
                 return self.SET_EXACT_TIME
         except Exception as e:
             self.logger.error(f"Error in set_exact_time: {str(e)}")
-            await update.message.reply_text("❌ *حدث خطأ أثناء تعيين الوقت المحدد. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            await update.message.reply_text("❌ *حدث خطأ أثناء معالجة الوقت المحدد. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
             return ConversationHandler.END
 
     async def set_delay(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle delay input"""
         try:
-            # Get delay
-            delay = update.message.text
+            # Get delay text
+            delay_text = update.message.text
 
-            # Validate delay
             try:
                 # Parse delay
-                delay_seconds = int(delay)
-
+                delay_seconds = int(delay_text)
+                
                 # Check if delay is positive
                 if delay_seconds <= 0:
-                    await update.message.reply_text(
-                        "⚠️ *يجب أن يكون التأخير أكبر من صفر.*",
-                        parse_mode="Markdown"
-                    )
+                    await update.message.reply_text("⚠️ *يجب أن يكون الفاصل الزمني موجباً. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
                     return self.SET_DELAY
-
+                
                 # Store delay in context
-                context.user_data['timing'] = "delay"
+                context.user_data['exact_time'] = None
                 context.user_data['delay_seconds'] = delay_seconds
-
-                # Create confirmation message
-                selected_groups = context.user_data.get('selected_group_objects', [])
-                message = context.user_data.get('message', '')
-
-                confirmation_text = "📋 *تأكيد النشر:*\n\n"
-                confirmation_text += f"👥 *المجموعات:* {len(selected_groups)} مجموعة\n"
-                confirmation_text += f"📝 *الرسالة:*\n{message}\n\n"
-                confirmation_text += f"⏰ *التأخير:* {delay_seconds} ثانية\n\n"
-                confirmation_text += "هل تريد المتابعة؟"
-
-                # Create keyboard
-                keyboard = [
-                    [InlineKeyboardButton("✅ تأكيد", callback_data="confirm_posting")],
-                    [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                # Send message
-                await update.message.reply_text(
-                    confirmation_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-                return self.CONFIRM_POSTING
+                context.user_data['is_recurring'] = True
+                
+                # Show confirmation
+                return await self.show_confirmation(update, context)
             except ValueError:
-                # Invalid delay format
+                # Invalid number format
                 await update.message.reply_text(
-                    "⚠️ *تنسيق التأخير غير صالح. يرجى إدخال رقم صحيح.*",
+                    "⚠️ *قيمة الفاصل الزمني غير صالحة. يرجى إدخال عدد صحيح موجب.*\n"
+                    "مثال: 3600 (للنشر كل ساعة)",
                     parse_mode="Markdown"
                 )
                 return self.SET_DELAY
         except Exception as e:
             self.logger.error(f"Error in set_delay: {str(e)}")
-            await update.message.reply_text("❌ *حدث خطأ أثناء تعيين التأخير. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            await update.message.reply_text("❌ *حدث خطأ أثناء معالجة الفاصل الزمني. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
             return ConversationHandler.END
 
-    async def handle_confirm_posting(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle posting confirmation"""
+    async def show_confirmation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show confirmation message"""
         try:
-            query = update.callback_query
-            await query.answer()
-
-            # Get user ID
-            user_id = update.effective_user.id
-
-            # Get posting data from context
-            selected_groups = context.user_data.get('selected_group_objects', [])
+            # Get message from context
             message = context.user_data.get('message', '')
-            timing = context.user_data.get('timing', 'now')
-            exact_time = context.user_data.get('exact_time', None)
-            delay_seconds = context.user_data.get('delay_seconds', 0)
-
-            # تصحيح: تحويل معرفات المجموعات إلى قائمة
-            group_ids = [group.get('group_id') for group in selected_groups]
-
-            # تصحيح: تحديد ما إذا كان النشر متكرر أم لا
-            is_recurring = timing == "delay"
-
-            # Start posting
-            task_id, success = self.posting_service.start_posting_task(
-                user_id=user_id,
-                post_id=str(time.time()), # Generate a simple post_id for now
-                group_ids=group_ids,
-                message=message,
-                exact_time=exact_time_dt if timing == "exact" else None, # Pass datetime object or None
-                delay_seconds=delay_seconds if timing == "delay" else None,
-                is_recurring=is_recurring
+            
+            # Get timing information
+            timing_type = context.user_data.get('timing_type', '')
+            exact_time = context.user_data.get('exact_time')
+            delay_seconds = context.user_data.get('delay_seconds')
+            is_recurring = context.user_data.get('is_recurring', False)
+            
+            # Get selected groups
+            selected_groups = context.user_data.get('selected_groups', [])
+            
+            # Create timing text
+            if timing_type == 'exact':
+                timing_text = f"🕒 *الوقت المحدد:* {exact_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            elif timing_type == 'interval':
+                # تحويل الثواني إلى تنسيق أكثر قابلية للقراءة
+                if delay_seconds < 60:
+                    timing_text = f"⏱ *الفاصل الزمني:* كل {delay_seconds} ثانية"
+                elif delay_seconds < 3600:
+                    minutes = delay_seconds // 60
+                    timing_text = f"⏱ *الفاصل الزمني:* كل {minutes} دقيقة"
+                else:
+                    hours = delay_seconds // 3600
+                    timing_text = f"⏱ *الفاصل الزمني:* كل {hours} ساعة"
+            else:  # now
+                timing_text = "🚀 *النشر:* فوري (مرة واحدة)"
+            
+            # Create confirmation message
+            confirmation_text = (
+                "📋 *ملخص النشر:*\n\n"
+                f"👥 *عدد المجموعات:* {len(selected_groups)}\n"
+                f"{timing_text}\n\n"
+                "📝 *الرسالة:*\n"
+                f"{message[:100]}{'...' if len(message) > 100 else ''}"
             )
-            result_message = "تم بدء النشر بنجاح." if success else "فشل بدء النشر."
-            if success:
-                # Update message with success
-                await query.edit_message_text(
-                    f"✅ *{result_message}*\n\n"
-                    f"استخدم /status للتحقق من حالة النشر.\n"
-                    f"استخدم /stop لإيقاف النشر.",
-                    parse_mode="Markdown"
-                )
-            else:
-                # Update message with error
-                await query.edit_message_text(
-                    f"❌ *{result_message}*",
-                    parse_mode="Markdown"
-                )
-
-            # End conversation
-            return ConversationHandler.END
-        except Exception as e:
-            self.logger.error(f"Error in handle_confirm_posting: {str(e)}")
-            try:
-                await query.edit_message_text("❌ *حدث خطأ أثناء تأكيد النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
-            except:
-                pass
-            return ConversationHandler.END
-
-    async def handle_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle cancel button"""
-        try:
-            query = update.callback_query
-            await query.answer()
-
-            # Update message
-            await query.edit_message_text("❌ *تم إلغاء العملية.*", parse_mode="Markdown")
-
-            # End conversation
-            return ConversationHandler.END
-        except Exception as e:
-            self.logger.error(f"Error in handle_cancel: {str(e)}")
-            return ConversationHandler.END
-
-    async def handle_cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle cancel command"""
-        try:
-            # Send message
-            await update.message.reply_text("❌ *تم إلغاء العملية.*", parse_mode="Markdown")
-
-            # End conversation
-            return ConversationHandler.END
-        except Exception as e:
-            self.logger.error(f"Error in handle_cancel_command: {str(e)}")
-            return ConversationHandler.END
-
-    async def check_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Check posting status"""
-        try:
-            # Get user ID
-            user_id = update.effective_user.id
-
-            # Get posting status
-            tasks = self.posting_service.get_all_tasks_status(user_id)
-
-            if tasks:
-                # Active posting
-                active_tasks = [task for task in tasks if task.get('status') == 'running']
-
-                if not active_tasks:
-                    await update.message.reply_text(
-                        "📊 *حالة النشر:*\n\n"
-                        "لا يوجد نشر نشط حالياً.",
-                        parse_mode="Markdown"
-                    )
-                    return
-
-                # Create status message
-                status_text = "📊 *حالة النشر النشطة:*\n\n"
-
-                for task in active_tasks:
-                    group_count = len(task.get('group_ids', []))
-                    message_count = task.get('message_count', 0)
-                    # Ensure message_count is a valid number
-                    if not isinstance(message_count, int):
-                        message_count = 0
-                    
-                    status_text += f"🆔 *معرف المهمة:* `{task.get('task_id', 'N/A')}`\n"
-                    status_text += f"👥 *المجموعات:* {group_count} مجموعة\n"
-                    status_text += f"✅ *تم النشر في:* {message_count} مجموعة\n"
-
-                    if task.get('exact_time'):
-                        status_text += f"🕒 *التوقيت:* {task.get('exact_time')}\n"
-                    elif task.get('delay_seconds', 0) > 0:
-                        status_text += f"⏳ *التأخير:* {task.get('delay_seconds')} ثانية\n"
-
-                    start_time_str = task.get('start_time', 'غير متوفر')
-                    if isinstance(start_time_str, datetime):
-                        start_time_str = start_time_str.strftime("%Y-%m-%d %H:%M:%S")
-                    status_text += f"⏱ *بدأ في:* {start_time_str}\n\n"
-
-                # Create keyboard
-                keyboard = [
-                    [InlineKeyboardButton("⛔ إيقاف كل النشر", callback_data="stop_posting")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                # Send status message
-                await update.message.reply_text(
-                    status_text,
+            
+            # Create keyboard for confirmation
+            keyboard = [
+                [InlineKeyboardButton("✅ تأكيد النشر", callback_data="confirm_posting")],
+                [InlineKeyboardButton("❌ إلغاء", callback_data="cancel")]
+            ]
+            
+            # Create reply markup
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send confirmation message
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    confirmation_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
             else:
-                # No active posting
                 await update.message.reply_text(
-                    "📊 *حالة النشر:*\n\n"
-                    "لا يوجد نشر نشط حالياً.",
+                    confirmation_text,
+                    reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
+            
+            return self.CONFIRM_POSTING
+        except Exception as e:
+            self.logger.error(f"Error in show_confirmation: {str(e)}")
+            if update.callback_query:
+                await update.callback_query.edit_message_text("❌ *حدث خطأ أثناء إظهار تأكيد النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            else:
+                await update.message.reply_text("❌ *حدث خطأ أثناء إظهار تأكيد النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            return ConversationHandler.END
+
+    async def handle_confirm_posting(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle confirm posting button"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Get user ID
+            user_id = update.effective_user.id
+            
+            # Get message from context
+            message = context.user_data.get('message', '')
+            
+            # Get timing information
+            exact_time = context.user_data.get('exact_time')
+            delay_seconds = context.user_data.get('delay_seconds')
+            is_recurring = context.user_data.get('is_recurring', False)
+            
+            # Get selected groups
+            selected_groups = context.user_data.get('selected_groups', [])
+            
+            # تحويل جميع معرفات المجموعات إلى نصوص لضمان الاتساق
+            selected_groups = [str(g_id) for g_id in selected_groups]
+            
+            # Generate a unique post ID
+            post_id = f"post_{int(time.time())}"
+            
+            # Start posting task
+            task_id, success = self.posting_service.start_posting_task(
+                user_id=user_id,
+                post_id=post_id,
+                message=message,
+                group_ids=selected_groups,
+                delay_seconds=delay_seconds,
+                exact_time=exact_time,
+                is_recurring=is_recurring
+            )
+            
+            if success:
+                # Create success message
+                success_text = f"✅ *تم بدء مهمة النشر بنجاح!*\n\nمعرف المهمة: `{task_id}`"
+                
+                # Add instructions for checking status and stopping
+                success_text += "\n\nيمكنك التحقق من حالة المهمة باستخدام الأمر: `/status`"
+                success_text += "\nلإيقاف النشر، استخدم الأمر: `/stop`"
+                
+                # Create keyboard for stopping
+                keyboard = [[InlineKeyboardButton("⛔ إيقاف النشر", callback_data="stop_posting")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Send success message
+                await query.edit_message_text(
+                    success_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                # No tasks were started
+                await query.edit_message_text("❌ *فشل بدء مهمة النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            
+            # End conversation
+            return ConversationHandler.END
+        except Exception as e:
+            self.logger.error(f"Error in handle_confirm_posting: {str(e)}")
+            await query.edit_message_text("❌ *حدث خطأ أثناء بدء مهمة النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            return ConversationHandler.END
+
+    async def handle_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle cancel button"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Clear user data
+        context.user_data.clear()
+        
+        # Get user ID
+        user_id = update.effective_user.id
+        
+        # Clear selected groups for this user
+        if user_id in self.user_selected_groups:
+            del self.user_selected_groups[user_id]
+        
+        # Send cancellation message
+        await query.edit_message_text("❌ *تم إلغاء عملية النشر.*", parse_mode="Markdown")
+        
+        return ConversationHandler.END
+
+    async def handle_cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle cancel command"""
+        # Clear user data
+        context.user_data.clear()
+        
+        # Get user ID
+        user_id = update.effective_user.id
+        
+        # Clear selected groups for this user
+        if user_id in self.user_selected_groups:
+            del self.user_selected_groups[user_id]
+        
+        # Send cancellation message
+        await update.message.reply_text("❌ *تم إلغاء عملية النشر.*", parse_mode="Markdown")
+        
+        return ConversationHandler.END
+
+    async def check_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Check status of posting tasks"""
+        try:
+            # Get user ID
+            user_id = update.effective_user.id
+            
+            # Get all tasks for this user
+            tasks = self.posting_service.get_all_tasks_status(user_id)
+            
+            if not tasks:
+                await update.message.reply_text("📊 *لا توجد مهام نشر نشطة.*", parse_mode="Markdown")
+                return
+            
+            # Create status message
+            status_text = "📊 *حالة مهام النشر:*\n\n"
+            
+            for task in tasks:
+                task_id = task.get('task_id', 'غير معروف')
+                status = task.get('status', 'غير معروف')
+                message_count = task.get('message_count', 0)
+                group_count = len(task.get('group_ids', []))
+                
+                # تحويل الحالة إلى نص مناسب
+                if status == 'running':
+                    status_text_ar = "🟢 قيد التشغيل"
+                elif status == 'stopping':
+                    status_text_ar = "🟠 جاري الإيقاف"
+                elif status == 'stopped':
+                    status_text_ar = "🔴 متوقف"
+                elif status == 'completed':
+                    status_text_ar = "✅ مكتمل"
+                elif status == 'failed':
+                    status_text_ar = "❌ فشل"
+                else:
+                    status_text_ar = f"⚪ {status}"
+                
+                # إضافة معلومات المهمة
+                status_text += f"• *المهمة:* `{task_id}`\n"
+                status_text += f"  *الحالة:* {status_text_ar}\n"
+                status_text += f"  *عدد الرسائل المرسلة:* {message_count}\n"
+                status_text += f"  *عدد المجموعات:* {group_count}\n\n"
+            
+            # Add instructions for stopping
+            status_text += "*لإيقاف النشر، استخدم الأمر:* `/stop`"
+            
+            # Send status message
+            await update.message.reply_text(status_text, parse_mode="Markdown")
         except Exception as e:
             self.logger.error(f"Error in check_status: {str(e)}")
-            await update.message.reply_text("❌ *حدث خطأ أثناء التحقق من حالة النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            await update.message.reply_text("❌ *حدث خطأ أثناء التحقق من حالة المهام. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+
+    async def stop_posting_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Stop posting tasks"""
+        try:
+            # Get user ID
+            user_id = update.effective_user.id
+            
+            # Stop all tasks for this user
+            stopped_count = self.posting_service.stop_all_user_tasks(user_id)
+            
+            if stopped_count > 0:
+                await update.message.reply_text(f"⛔ *تم إيقاف {stopped_count} مهمة نشر بنجاح.*", parse_mode="Markdown")
+            else:
+                await update.message.reply_text("📊 *لا توجد مهام نشر نشطة لإيقافها.*", parse_mode="Markdown")
+        except Exception as e:
+            self.logger.error(f"Error in stop_posting_command: {str(e)}")
+            await update.message.reply_text("❌ *حدث خطأ أثناء إيقاف مهام النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
 
     async def handle_stop_posting(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle stop posting button"""
         try:
             query = update.callback_query
             await query.answer()
-
+            
             # Get user ID
             user_id = update.effective_user.id
-
-            # Get all tasks for this user before stopping them
-            tasks = self.posting_service.get_all_tasks_status(user_id)
-            active_tasks = [task for task in tasks if task.get('status') == 'running']
             
-            # Stop posting and DELETE tasks (not just mark as stopped)
+            # Stop all tasks for this user
             stopped_count = self.posting_service.stop_all_user_tasks(user_id)
-            success = stopped_count > 0
-            result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
-
-            # Update message
-            await query.edit_message_text(
-                f"{'✅' if success else '❌'} *{result_message}*",
-                parse_mode="Markdown"
-            )
+            
+            if stopped_count > 0:
+                await query.edit_message_text(f"⛔ *تم إيقاف {stopped_count} مهمة نشر بنجاح.*", parse_mode="Markdown")
+            else:
+                await query.edit_message_text("📊 *لا توجد مهام نشر نشطة لإيقافها.*", parse_mode="Markdown")
         except Exception as e:
             self.logger.error(f"Error in handle_stop_posting: {str(e)}")
-            await query.edit_message_text("❌ *حدث خطأ أثناء إيقاف النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
-
-    async def stop_posting_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle stop posting command"""
-        try:
-            # Get user ID
-            user_id = update.effective_user.id
-
-            # Get all tasks for this user before stopping them
-            tasks = self.posting_service.get_all_tasks_status(user_id)
-            active_tasks = [task for task in tasks if task.get('status') == 'running']
-            
-            # Stop posting and DELETE tasks (not just mark as stopped)
-            stopped_count = self.posting_service.stop_all_user_tasks(user_id)
-            success = stopped_count > 0
-            result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
-
-            # Send message
-            await update.message.reply_text(
-                f"{'✅' if success else '❌'} *{result_message}*",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            self.logger.error(f"Error in stop_posting_command: {str(e)}")
-            await update.message.reply_text("❌ *حدث خطأ أثناء إيقاف النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
+            await query.edit_message_text("❌ *حدث خطأ أثناء إيقاف مهام النشر. يرجى المحاولة مرة أخرى.*", parse_mode="Markdown")
