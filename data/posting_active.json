@@ -22,13 +22,12 @@
         ],
         "delay_seconds": 700,
         "exact_time": null,
-        "status": "failed",
+        "status": "running",
         "start_time": "2025-05-22T07:20:51.244660",
-        "last_activity": "2025-05-23T01:14:10.694949",
-        "message_count": 742,
+        "last_activity": "2025-05-23T01:00:53.300450",
+        "message_count": 734,
         "message_id": null,
-        "is_recurring": true,
-        "status_reason": "Error: API ID/Hash missing"
+        "is_recurring": true
     },
     "6459577996_1747912587.2142222": {
         "user_id": 6459577996,
@@ -39,13 +38,12 @@
         ],
         "delay_seconds": 300,
         "exact_time": null,
-        "status": "failed",
+        "status": "running",
         "start_time": "2025-05-22T11:16:27.214226",
-        "last_activity": "2025-05-23T01:14:10.698258",
+        "last_activity": "2025-05-22T23:58:44.861237",
         "message_count": 138,
         "message_id": null,
-        "is_recurring": true,
-        "status_reason": "Error: API ID/Hash missing"
+        "is_recurring": true
     },
     "7207131508_1747958452.5045075": {
         "user_id": 7207131508,
@@ -60,13 +58,12 @@
         ],
         "delay_seconds": 200,
         "exact_time": null,
-        "status": "failed",
+        "status": "running",
         "start_time": "2025-05-23T00:00:52.504512",
-        "last_activity": "2025-05-23T01:14:10.696818",
+        "last_activity": "2025-05-23T00:20:00.721773",
         "message_count": 17,
         "message_id": null,
-        "is_recurring": true,
-        "status_reason": "Error: API ID/Hash missing"
+        "is_recurring": true
     },
     "6404397907_1747961826.1784172": {
         "user_id": 6404397907,
@@ -96,33 +93,11 @@
         ],
         "delay_seconds": 200,
         "exact_time": null,
-        "status": "failed",
+        "status": "running",
         "start_time": "2025-05-23T00:57:06.178422",
-        "last_activity": "2025-05-23T01:14:10.780170",
-        "message_count": 80,
+        "last_activity": "2025-05-23T01:07:11.407795",
+        "message_count": 64,
         "message_id": null,
-        "is_recurring": true,
-        "status_reason": "Error: API ID/Hash missing"
-    },
-    "7207131508_1747962902": {
-        "user_id": 7207131508,
-        "post_id": "1747962901.575179",
-        "message": "💥 بوت نشر تلقائي  \n💰 بس بـ 2$ شهرياً  \n🎁 تجربة مجانية؟ شوف البايو 👀\n\n📦 متوفر:  \n• شاهد 🎬  \n• سبوتيفاي 🎵  \n• ستيم 🎮  \n• OSN 📺  \n• كرانشي رول 🍥  \n📩 تعال خاصي\n\n📸 انشاءات انستا 2012 ✅  \n🤖 أسوّي لك أي بوت تيليجرام\n\n📢 إعلان يوم كامل  \nبس بـ 0.50$ 🔥",
-        "group_ids": [
-            "-1001599134989",
-            "-1001894777304",
-            "-1001699992849",
-            "-1002533048637",
-            "-1001351166875"
-        ],
-        "delay_seconds": 200,
-        "exact_time": null,
-        "status": "failed",
-        "start_time": "2025-05-23T01:15:01.575202",
-        "last_activity": "2025-05-23T01:15:01.576257",
-        "message_count": 0,
-        "is_recurring": true,
-        "retries": 0,
-        "status_reason": "Error: API ID/Hash missing"
+        "is_recurring": true
     }
 }
