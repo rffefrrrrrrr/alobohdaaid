@@ -72,6 +72,9 @@ class PostingService:
         # قفل للتزامن
         self.tasks_lock = threading.RLock()
         
+        # إضافة قاموس لتتبع خيوط المستخدمين - تحسين جديد
+        self.user_threads = {}  # {user_id: task_id}
+        
         # تهيئة اتصال قاعدة البيانات إذا لم يتم توفيره
         if users_collection is None:
             try:
@@ -200,6 +203,12 @@ class PostingService:
                         logger.warning(f"المهمة {task_id} قيد التشغيل بالفعل، تخطي")
                         continue
                     
+                    # التحقق مما إذا كان المستخدم لديه مهمة نشطة بالفعل - تحسين جديد
+                    if user_id in self.user_threads:
+                        existing_task_id = self.user_threads[user_id]
+                        logger.warning(f"المستخدم {user_id} لديه مهمة نشطة بالفعل ({existing_task_id})، إيقافها قبل استئناف المهمة الجديدة")
+                        self._stop_task_internal(existing_task_id)
+                    
                     # إنشاء حدث توقف جديد لكل مهمة
                     self.task_events[task_id] = threading.Event()
                     
@@ -208,6 +217,9 @@ class PostingService:
                     thread.daemon = True
                     self.task_threads[task_id] = thread
                     thread.start()
+                    
+                    # تسجيل المهمة النشطة للمستخدم - تحسين جديد
+                    self.user_threads[user_id] = task_id
                     
                     resumed_count += 1
                     logger.info(f"تم استئناف المهمة {task_id} للمستخدم {user_id}")
@@ -268,18 +280,13 @@ class PostingService:
         task_id = str(user_id) + "_" + str(time.time())  # معرف مهمة بسيط
         start_time = datetime.now()
         
-        # التحقق من وجود مهام نشطة للمستخدم نفسه
+        # التحقق من وجود مهام نشطة للمستخدم نفسه - تحسين جديد
         with self.tasks_lock:
-            # فحص المهام النشطة للمستخدم
-            active_user_tasks = [tid for tid, tdata in self.active_tasks.items() 
-                               if tdata.get("user_id") == user_id and 
-                               tdata.get("status") == "running"]
-            
-            # إذا كانت هناك مهام نشطة، قم بإيقافها أولاً
-            if active_user_tasks:
-                logger.warning(f"تم العثور على {len(active_user_tasks)} مهمة نشطة للمستخدم {user_id}. سيتم إيقافها قبل بدء مهمة جديدة.")
-                for old_task_id in active_user_tasks:
-                    self._stop_task_internal(old_task_id)
+            # التحقق مما إذا كان المستخدم لديه مهمة نشطة بالفعل
+            if user_id in self.user_threads:
+                existing_task_id = self.user_threads[user_id]
+                logger.warning(f"المستخدم {user_id} لديه مهمة نشطة بالفعل ({existing_task_id})، إيقافها قبل بدء مهمة جديدة")
+                self._stop_task_internal(existing_task_id)
         
         # تأكد من أن group_ids هي قائمة من السلاسل
         if isinstance(group_ids, str):
@@ -323,6 +330,10 @@ class PostingService:
         thread.daemon = True  # جعل الخيط daemon لضمان إنهائه عند إنهاء البرنامج الرئيسي
         self.task_threads[task_id] = thread
         thread.start()
+        
+        # تسجيل المهمة النشطة للمستخدم - تحسين جديد
+        with self.tasks_lock:
+            self.user_threads[user_id] = task_id
         
         logger.info(f"تم بدء مهمة النشر {task_id} للمستخدم {user_id}")
         
@@ -598,256 +609,235 @@ class PostingService:
                                         return
                             else:
                                 # إذا كان الوقت المحدد في الماضي، قم بالنشر فوراً
-                                logger.info(f"الوقت المحدد {exact_time} في الماضي، سيتم النشر فوراً")
+                                logger.info(f"الوقت المحدد للمهمة {task_id} ({exact_time}) في الماضي، النشر فوراً")
                     except Exception as e:
-                        logger.error(f"خطأ في انتظار الوقت المحدد للمهمة {task_id}: {str(e)}")
+                        logger.error(f"خطأ في معالجة الوقت المحدد للمهمة {task_id}: {str(e)}")
                 
-                # التحقق من حدث التوقف مرة أخرى قبل بدء حلقة الإرسال
-                if stop_event.is_set():
-                    logger.info(f"تم تعيين حدث التوقف للمهمة {task_id} قبل بدء حلقة الإرسال. إلغاء المهمة.")
-                    return
-                
-                # تعريف دالة مساعدة لإرسال رسالة إلى مجموعة واحدة
-                async def send_message_to_group(group_id):
+                # حلقة النشر الرئيسية
+                while not stop_event.is_set():
                     try:
-                        # محاولة إرسال الرسالة إلى المجموعة
-                        logger.info(f"محاولة إرسال رسالة إلى المجموعة {group_id} للمهمة {task_id}")
+                        # التحقق من حالة المهمة قبل كل دورة
+                        with self.tasks_lock:
+                            if task_id not in self.active_tasks or self.active_tasks[task_id].get("status") != "running":
+                                logger.warning(f"المهمة {task_id} لم تعد في حالة تشغيل، الخروج من الحلقة.")
+                                break
                         
-                        # تحويل معرف المجموعة إلى عدد صحيح إذا كان ذلك ممكناً
-                        try:
-                            numeric_group_id = int(group_id)
-                            logger.info(f"تم تحويل معرف المجموعة {group_id} إلى عدد صحيح: {numeric_group_id}")
-                        except ValueError:
-                            numeric_group_id = group_id
-                            logger.info(f"استخدام معرف المجموعة كما هو (سلسلة): {group_id}")
+                        # التحقق من حدث التوقف قبل كل دورة
+                        if stop_event.is_set():
+                            logger.info(f"تم تعيين حدث التوقف للمهمة {task_id}، الخروج من الحلقة.")
+                            break
                         
-                        # محاولة الحصول على كيان المجموعة بعدة طرق
-                        entity = None
-                        try:
-                            # الطريقة 1: استخدام معرف المجموعة مباشرة
-                            entity = await client.get_entity(numeric_group_id)
-                            logger.info(f"تم الحصول على كيان المجموعة {group_id} باستخدام المعرف المباشر")
-                        except Exception as e1:
-                            logger.warning(f"فشل الحصول على كيان المجموعة {group_id} باستخدام المعرف المباشر: {str(e1)}")
-                            
+                        # إرسال الرسالة إلى جميع المجموعات
+                        for group_id in group_ids:
                             try:
-                                # الطريقة 2: إذا كان المعرف يبدأ بـ -100، حاول إزالته
-                                if str(group_id).startswith('-100'):
-                                    channel_id = int(str(group_id)[4:])
-                                    entity = await client.get_entity(channel_id)
-                                    logger.info(f"تم الحصول على كيان المجموعة {group_id} بعد إزالة -100")
-                            except Exception as e2:
-                                logger.warning(f"فشل الحصول على كيان المجموعة {group_id} بعد إزالة -100: {str(e2)}")
-                                
+                                # محاولة الحصول على الكيان
                                 try:
-                                    # الطريقة 3: محاولة استخدام InputPeerChannel
-                                    if str(group_id).startswith('-100'):
-                                        channel_id = int(str(group_id)[4:])
-                                        entity = InputPeerChannel(channel_id=channel_id, access_hash=0)
-                                        logger.info(f"تم إنشاء InputPeerChannel للمجموعة {group_id}")
-                                except Exception as e3:
-                                    logger.warning(f"فشل إنشاء InputPeerChannel للمجموعة {group_id}: {str(e3)}")
-                                    
+                                    # محاولة التعامل مع المعرف كرقم
                                     try:
-                                        # الطريقة 4: محاولة الانضمام إلى المجموعة أولاً إذا كانت قناة عامة
-                                        if str(group_id).startswith('@'):
+                                        numeric_group_id = int(group_id)
+                                        entity = await client.get_entity(numeric_group_id)
+                                    except ValueError:
+                                        # ربما اسم مستخدم مثل @channelname
+                                        entity = await client.get_entity(group_id)
+                                except ValueError as e:
+                                    logger.error(f"معرف المجموعة غير صالح للمهمة {task_id}: {group_id} - {str(e)}")
+                                    continue
+                                except Exception as e:
+                                    logger.error(f"خطأ في الحصول على كيان المجموعة للمهمة {task_id}: {group_id} - {str(e)}")
+                                    
+                                    # محاولة الانضمام إذا كانت قناة عامة
+                                    if isinstance(group_id, str) and group_id.startswith('@'):
+                                        try:
+                                            logger.info(f"محاولة الانضمام إلى القناة العامة للمهمة {task_id}: {group_id}")
                                             await client(JoinChannelRequest(group_id))
                                             entity = await client.get_entity(group_id)
-                                            logger.info(f"تم الانضمام إلى القناة والحصول على كيان المجموعة {group_id}")
-                                    except Exception as e4:
-                                        logger.warning(f"فشل الانضمام إلى القناة والحصول على كيان المجموعة {group_id}: {str(e4)}")
+                                            logger.info(f"تم الانضمام بنجاح إلى القناة للمهمة {task_id}: {group_id}")
+                                        except Exception as join_error:
+                                            logger.error(f"فشل الانضمام إلى القناة للمهمة {task_id}: {group_id} - {str(join_error)}")
+                                            continue
+                                    else:
+                                        continue
+                                
+                                # إرسال الرسالة
+                                await client.send_message(entity, message)
+                                logger.info(f"تم إرسال الرسالة بنجاح للمهمة {task_id} إلى المجموعة: {group_id}")
+                                
+                                # تحديث عداد الرسائل
+                                with self.tasks_lock:
+                                    if task_id in self.active_tasks:
+                                        current_count = self.active_tasks[task_id].get("message_count", 0)
+                                        self.active_tasks[task_id]["message_count"] = current_count + 1
+                                        self.active_tasks[task_id]["last_activity"] = datetime.now()
+                            except FloodWaitError as flood_error:
+                                wait_time = flood_error.seconds
+                                logger.warning(f"انتظار فيضان للمهمة {task_id} عند الإرسال إلى {group_id}. الانتظار {wait_time}ث.")
+                                
+                                # انتظار حتى انتهاء وقت الانتظار أو حتى يتم تعيين حدث التوقف
+                                try:
+                                    wait_task = asyncio.create_task(asyncio.sleep(wait_time))
+                                    
+                                    async def check_stop_event_flood():
+                                        while not stop_event.is_set():
+                                            await asyncio.sleep(0.5)
+                                            if stop_event.is_set():
+                                                return True
+                                        return True
+                                    
+                                    stop_check_task = asyncio.create_task(check_stop_event_flood())
+                                    
+                                    done, pending = await asyncio.wait(
+                                        [wait_task, stop_check_task],
+                                        return_when=asyncio.FIRST_COMPLETED
+                                    )
+                                    
+                                    for task in pending:
+                                        task.cancel()
+                                    
+                                    if stop_event.is_set():
+                                        logger.info(f"تم إيقاف المهمة {task_id} أثناء انتظار الفيضان")
+                                        return
+                                except Exception as wait_error:
+                                    logger.error(f"خطأ أثناء انتظار الفيضان للمهمة {task_id}: {str(wait_error)}")
+                            except (ChannelPrivateError, ChatAdminRequiredError) as perm_error:
+                                logger.error(f"خطأ في الصلاحيات للمهمة {task_id} عند الإرسال إلى {group_id}: {str(perm_error)}")
+                                continue
+                            except Exception as e:
+                                logger.error(f"خطأ غير متوقع للمهمة {task_id} عند الإرسال إلى {group_id}: {str(e)}")
+                                continue
                         
-                        if not entity:
-                            logger.error(f"فشل الحصول على كيان المجموعة {group_id} بجميع الطرق المتاحة")
-                            return False
+                        # حفظ الحالة بعد كل دورة إرسال ناجحة
+                        save_result = self.save_active_tasks()
+                        if save_result:
+                            logger.info(f"تم حفظ حالة المهام بعد دورة إرسال ناجحة للمهمة {task_id}")
+                        else:
+                            logger.warning(f"فشل حفظ حالة المهام بعد دورة إرسال ناجحة للمهمة {task_id}")
                         
-                        # محاولة إرسال الرسالة
-                        send_result = await client.send_message(entity, message)
+                        # التحقق مما إذا كانت المهمة متكررة
+                        with self.tasks_lock:
+                            if task_id in self.active_tasks:
+                                is_recurring = self.active_tasks[task_id].get("is_recurring", True)
+                                if not is_recurring:
+                                    logger.info(f"المهمة {task_id} غير متكررة، الانتهاء بعد دورة واحدة.")
+                                    self.active_tasks[task_id]["status"] = "completed"
+                                    self.active_tasks[task_id]["last_activity"] = datetime.now()
+                                    
+                                    # حفظ الحالة بعد إكمال المهمة غير المتكررة
+                                    save_result = self.save_active_tasks()
+                                    if save_result:
+                                        logger.info(f"تم حفظ حالة المهام بعد إكمال المهمة غير المتكررة {task_id}")
+                                    else:
+                                        logger.warning(f"فشل حفظ حالة المهام بعد إكمال المهمة غير المتكررة {task_id}")
+                                    
+                                    break  # الخروج من الحلقة
                         
-                        if not send_result:
-                            logger.warning(f"فشل إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}")
-                            return False
+                        # الانتظار قبل الدورة التالية
+                        wait_time = delay_seconds if delay_seconds and delay_seconds > 0 else 3600  # افتراضي 1 ساعة
+                        logger.info(f"المهمة {task_id} ستنتظر {wait_time}ث قبل الدورة التالية.")
                         
-                        logger.info(f"تم إرسال الرسالة بنجاح إلى المجموعة {group_id} للمهمة {task_id}")
-                        return True
-                    except FloodWaitError as flood_error:
-                        # التعامل مع خطأ الفيضان
-                        wait_time = flood_error.seconds
-                        logger.warning(f"خطأ الفيضان للمجموعة {group_id} للمهمة {task_id}. الانتظار لمدة {wait_time} ثانية")
-                        
+                        # انتظار حتى انتهاء وقت الانتظار أو حتى يتم تعيين حدث التوقف
                         try:
-                            # انتظار المدة المحددة أو حتى يتم تعيين حدث التوقف
                             wait_task = asyncio.create_task(asyncio.sleep(wait_time))
                             
-                            # إنشاء مهمة للتحقق من حدث التوقف
-                            async def check_stop_event():
+                            async def check_stop_event_delay():
                                 while not stop_event.is_set():
-                                    await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
+                                    await asyncio.sleep(0.5)
                                     if stop_event.is_set():
                                         return True
                                 return True
                             
-                            stop_check_task = asyncio.create_task(check_stop_event())
+                            stop_check_task = asyncio.create_task(check_stop_event_delay())
                             
-                            # انتظار أي من المهمتين
                             done, pending = await asyncio.wait(
                                 [wait_task, stop_check_task],
                                 return_when=asyncio.FIRST_COMPLETED
                             )
                             
-                            # إلغاء المهام المعلقة
                             for task in pending:
                                 task.cancel()
                             
                             if stop_event.is_set():
-                                logger.info(f"تم إيقاف المهمة {task_id} أثناء انتظار خطأ الفيضان")
-                                return False
-                        except asyncio.CancelledError:
-                            # تم إلغاء المهمة
-                            logger.info(f"تم إلغاء مهمة الانتظار للمهمة {task_id}")
-                            if stop_event.is_set():
-                                return False
+                                logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار بين الدورات")
+                                break
+                        except Exception as wait_error:
+                            logger.error(f"خطأ أثناء الانتظار بين الدورات للمهمة {task_id}: {str(wait_error)}")
+                    except Exception as cycle_error:
+                        logger.error(f"خطأ في دورة النشر للمهمة {task_id}: {str(cycle_error)}")
                         
-                        # إعادة المحاولة بعد الانتظار
+                        # تحديث وقت النشاط الأخير
+                        with self.tasks_lock:
+                            if task_id in self.active_tasks:
+                                self.active_tasks[task_id]["last_activity"] = datetime.now()
+                        
+                        # الانتظار قبل المحاولة مرة أخرى
                         try:
-                            send_result = await client.send_message(entity, message)
+                            logger.info(f"المهمة {task_id} ستنتظر 60ث قبل المحاولة مرة أخرى بعد الخطأ.")
                             
-                            if not send_result:
-                                logger.warning(f"فشل إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id} بعد انتظار خطأ الفيضان")
-                                return False
+                            wait_task = asyncio.create_task(asyncio.sleep(60))  # انتظار 1 دقيقة قبل المحاولة مرة أخرى
                             
-                            logger.info(f"تم إرسال الرسالة بنجاح إلى المجموعة {group_id} للمهمة {task_id} بعد انتظار خطأ الفيضان")
-                            return True
-                        except Exception as retry_error:
-                            logger.error(f"خطأ في إعادة محاولة إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id} بعد انتظار خطأ الفيضان: {str(retry_error)}")
-                            return False
-                    except ChannelPrivateError:
-                        logger.error(f"خطأ: المجموعة {group_id} خاصة وغير متاحة للمستخدم للمهمة {task_id}")
-                        return False
-                    except ChatAdminRequiredError:
-                        logger.error(f"خطأ: مطلوب صلاحيات المشرف للنشر في المجموعة {group_id} للمهمة {task_id}")
-                        return False
-                    except Exception as e:
-                        logger.error(f"خطأ في إرسال الرسالة إلى المجموعة {group_id} للمهمة {task_id}: {str(e)}")
-                        return False
+                            async def check_stop_event_error():
+                                while not stop_event.is_set():
+                                    await asyncio.sleep(0.5)
+                                    if stop_event.is_set():
+                                        return True
+                                return True
+                            
+                            stop_check_task = asyncio.create_task(check_stop_event_error())
+                            
+                            done, pending = await asyncio.wait(
+                                [wait_task, stop_check_task],
+                                return_when=asyncio.FIRST_COMPLETED
+                            )
+                            
+                            for task in pending:
+                                task.cancel()
+                            
+                            if stop_event.is_set():
+                                logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار بعد الخطأ")
+                                break
+                        except Exception as wait_error:
+                            logger.error(f"خطأ أثناء الانتظار بعد الخطأ للمهمة {task_id}: {str(wait_error)}")
                 
-                # بدء حلقة الإرسال المتزامن
-                logger.info(f"بدء النشر المتزامن للمهمة {task_id} مع {len(group_ids)} مجموعة")
+                # نهاية الحلقة while
+                logger.info(f"تم الخروج من حلقة النشر للمهمة {task_id}")
                 
-                # إنشاء قائمة بمهام الإرسال لجميع المجموعات
-                send_tasks = [send_message_to_group(group_id) for group_id in group_ids]
-                
-                # تنفيذ جميع مهام الإرسال بشكل متزامن
-                if send_tasks:
-                    results = await asyncio.gather(*send_tasks, return_exceptions=True)
-                    
-                    # حساب عدد الرسائل المرسلة بنجاح
-                    success_count = sum(1 for result in results if result is True)
-                    
-                    logger.info(f"تم إرسال {success_count} رسالة من أصل {len(group_ids)} بنجاح للمهمة {task_id}")
-                    
-                    # تحديث عدد الرسائل ووقت النشاط الأخير
+                # تحديث حالة المهمة إذا تم تعيين حدث التوقف
+                if stop_event.is_set():
                     with self.tasks_lock:
-                        if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
-                            self.active_tasks[task_id]["message_count"] += success_count
+                        if task_id in self.active_tasks:
+                            self.active_tasks[task_id]["status"] = "stopped"
                             self.active_tasks[task_id]["last_activity"] = datetime.now()
                     
-                    # حفظ الحالة بعد الإرسال المتزامن
+                    # حفظ الحالة بعد إيقاف المهمة
                     save_result = self.save_active_tasks()
                     if save_result:
-                        logger.info(f"تم حفظ حالة المهام بعد الإرسال المتزامن للمهمة {task_id}")
+                        logger.info(f"تم حفظ حالة المهام بعد إيقاف المهمة {task_id}")
                     else:
-                        logger.warning(f"فشل حفظ حالة المهام بعد الإرسال المتزامن للمهمة {task_id}")
-                
-                # تحديث حالة المهمة بعد الانتهاء من الإرسال المتزامن
-                with self.tasks_lock:
-                    if task_id in self.active_tasks:
-                        if self.active_tasks[task_id].get("status") == "running":
-                            # إذا كانت المهمة متكررة، أعد تعيين حالتها إلى "running"
-                            if self.active_tasks[task_id].get("is_recurring"):
-                                logger.info(f"المهمة {task_id} متكررة، سيتم الاحتفاظ بها في حالة تشغيل")
-                                self.active_tasks[task_id]["last_activity"] = datetime.now()
-                            else:
-                                # إذا لم تكن متكررة، قم بتعيين حالتها إلى "completed"
-                                logger.info(f"المهمة {task_id} اكتملت بنجاح")
-                                self.active_tasks[task_id]["status"] = "completed"
-                                self.active_tasks[task_id]["last_activity"] = datetime.now()
-                
-                # حفظ الحالة بعد اكتمال المهمة
-                save_result = self.save_active_tasks()
-                if save_result:
-                    logger.info(f"تم حفظ حالة المهام بعد اكتمال المهمة {task_id}")
-                else:
-                    logger.warning(f"فشل حفظ حالة المهام بعد اكتمال المهمة {task_id}")
-                
-                # التحقق مما إذا كانت المهمة متكررة
-                is_recurring = False
-                with self.tasks_lock:
-                    if task_id in self.active_tasks and self.active_tasks[task_id].get("status") == "running":
-                        is_recurring = self.active_tasks[task_id].get("is_recurring", False)
-
-                # إذا كانت المهمة متكررة وليست متوقفة، انتظر ثم كرر العملية
-                if is_recurring and not stop_event.is_set():
-                    logger.info(f"المهمة {task_id} متكررة، سيتم تكرار النشر بعد التأخير")
-                    
-                    # التأخير بين دورات النشر
-                    cycle_delay = delay_seconds if delay_seconds and delay_seconds > 0 else 3600  # استخدام ساعة كتأخير افتراضي
-                    
-                    try:
-                        # انتظار المدة المحددة أو حتى يتم تعيين حدث التوقف
-                        wait_task = asyncio.create_task(asyncio.sleep(cycle_delay))
-                        
-                        # إنشاء مهمة للتحقق من حدث التوقف
-                        async def check_stop_event():
-                            while not stop_event.is_set():
-                                await asyncio.sleep(0.5)  # التحقق كل نصف ثانية
-                                if stop_event.is_set():
-                                    return True
-                            return True
-                        
-                        stop_check_task = asyncio.create_task(check_stop_event())
-                        
-                        # انتظار أي من المهمتين
-                        done, pending = await asyncio.wait(
-                            [wait_task, stop_check_task],
-                            return_when=asyncio.FIRST_COMPLETED
-                        )
-                        
-                        # إلغاء المهام المعلقة
-                        for task in pending:
-                            task.cancel()
-                        
-                        if not stop_event.is_set():
-                            # إعادة تشغيل الروتين المشترك لتكرار النشر
-                            logger.info(f"إعادة تشغيل دورة النشر للمهمة {task_id}")
-                            await task_coroutine()  # استدعاء ذاتي للروتين المشترك
-                        else:
-                            logger.info(f"تم إيقاف المهمة {task_id} أثناء الانتظار بين دورات النشر")
-                    except Exception as e:
-                        logger.error(f"خطأ في تكرار النشر للمهمة {task_id}: {str(e)}")
+                        logger.warning(f"فشل حفظ حالة المهام بعد إيقاف المهمة {task_id}")
             except Exception as e:
-                logger.error(f"خطأ غير متوقع في تنفيذ المهمة {task_id}: {str(e)}")
+                logger.error(f"خطأ غير متوقع في الروتين المشترك للمهمة {task_id}: {str(e)}")
                 
                 with self.tasks_lock:
                     if task_id in self.active_tasks:
                         self.active_tasks[task_id]["status"] = "failed"
                         self.active_tasks[task_id]["last_activity"] = datetime.now()
                 
-                # حفظ الحالة بعد فشل المهمة بسبب خطأ غير متوقع
+                # حفظ الحالة بعد فشل المهمة
                 save_result = self.save_active_tasks()
                 if save_result:
                     logger.info(f"تم حفظ حالة المهام بعد فشل المهمة {task_id} بسبب خطأ غير متوقع")
                 else:
                     logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id} بسبب خطأ غير متوقع")
             finally:
-                # إغلاق اتصال العميل
-                try:
-                    await client.disconnect()
-                except Exception as e:
-                    logger.error(f"خطأ في إغلاق اتصال العميل للمهمة {task_id}: {str(e)}")
+                # التأكد من إغلاق العميل
+                if client.is_connected():
+                    try:
+                        await client.disconnect()
+                        logger.info(f"تم قطع اتصال العميل للمهمة {task_id}")
+                    except Exception as disconnect_error:
+                        logger.error(f"خطأ أثناء قطع اتصال العميل للمهمة {task_id}: {str(disconnect_error)}")
         
         try:
-            # تنفيذ الروتين المشترك في الحلقة
+            # تنفيذ الروتين المشترك
             loop.run_until_complete(task_coroutine())
         except Exception as e:
             logger.error(f"خطأ في تنفيذ الروتين المشترك للمهمة {task_id}: {str(e)}")
@@ -857,206 +847,121 @@ class PostingService:
                     self.active_tasks[task_id]["status"] = "failed"
                     self.active_tasks[task_id]["last_activity"] = datetime.now()
             
-            # حفظ الحالة بعد فشل المهمة بسبب خطأ في الروتين المشترك
+            # حفظ الحالة بعد فشل المهمة
             save_result = self.save_active_tasks()
             if save_result:
-                logger.info(f"تم حفظ حالة المهام بعد فشل المهمة {task_id} بسبب خطأ في الروتين المشترك")
+                logger.info(f"تم حفظ حالة المهام بعد فشل المهمة {task_id} بسبب خطأ في تنفيذ الروتين المشترك")
             else:
-                logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id} بسبب خطأ في الروتين المشترك")
+                logger.warning(f"فشل حفظ حالة المهام بعد فشل المهمة {task_id} بسبب خطأ في تنفيذ الروتين المشترك")
         finally:
             # إغلاق الحلقة
             try:
                 loop.close()
-            except Exception as e:
-                logger.error(f"خطأ في إغلاق الحلقة للمهمة {task_id}: {str(e)}")
-    
-    def stop_posting_task(self, task_id):
-        """إيقاف مهمة نشر وحذفها نهائياً"""
-        logger.info(f"طلب إيقاف وحذف المهمة {task_id}")
-        
-        # التحقق من وجود المهمة
-        with self.tasks_lock:
-            if task_id not in self.active_tasks:
-                logger.warning(f"المهمة {task_id} غير موجودة، لا يمكن إيقافها")
-                return False, "المهمة غير موجودة"
+                logger.info(f"تم إغلاق حلقة الأحداث للمهمة {task_id}")
+            except Exception as loop_error:
+                logger.error(f"خطأ أثناء إغلاق حلقة الأحداث للمهمة {task_id}: {str(loop_error)}")
             
-            # تعيين حدث التوقف
-            if task_id in self.task_events:
-                self.task_events[task_id].set()
-                logger.debug(f"تم تعيين حدث التوقف للمهمة {task_id}")
+            # تنظيف الموارد
+            with self.tasks_lock:
+                # إزالة المهمة من قاموس خيوط المستخدمين إذا كانت هذه المهمة هي المهمة النشطة الحالية للمستخدم - تحسين جديد
+                if user_id in self.user_threads and self.user_threads[user_id] == task_id:
+                    del self.user_threads[user_id]
+                    logger.info(f"تم إزالة المهمة {task_id} من قاموس خيوط المستخدم {user_id}")
+                
+                # إزالة الخيط من قاموس الخيوط
+                if task_id in self.task_threads:
+                    del self.task_threads[task_id]
+                
+                # إزالة حدث التوقف من قاموس الأحداث
+                if task_id in self.task_events:
+                    del self.task_events[task_id]
+            
+            # حفظ الحالة النهائية
+            save_result = self.save_active_tasks()
+            if save_result:
+                logger.info(f"تم حفظ حالة المهام النهائية بعد انتهاء المهمة {task_id}")
             else:
-                logger.warning(f"لم يتم العثور على حدث التوقف للمهمة {task_id}")
-            
-            # حذف المهمة من الذاكرة
-            del self.active_tasks[task_id]
-            
-            # حذف الخيط وحدث التوقف إذا كانا موجودين
-            if task_id in self.task_threads:
-                del self.task_threads[task_id]
-            
-            if task_id in self.task_events:
-                del self.task_events[task_id]
-        
-        # حذف المهمة من ملفات JSON
-        self._remove_task_from_json(task_id)
-        
-        # حفظ الحالة بعد حذف المهمة
-        save_result = self.save_active_tasks()
-        if save_result:
-            logger.info(f"تم حفظ حالة المهام بعد حذف المهمة {task_id}")
-        else:
-            logger.warning(f"فشل حفظ حالة المهام بعد حذف المهمة {task_id}")
-        
-        return True, "تم إيقاف وحذف المهمة بنجاح"
-    
-    def _remove_task_from_json(self, task_id):
-        """حذف مهمة محددة من ملفات JSON"""
-        logger.info(f"حذف المهمة {task_id} من ملفات JSON")
-        try:
-            # حذف من الملف الرئيسي الجديد
-            if os.path.exists(self.posting_active_json_file):
-                with open(self.posting_active_json_file, 'r', encoding='utf-8') as f:
-                    tasks = json.load(f)
-                
-                # حذف المهمة المحددة فقط
-                if task_id in tasks:
-                    del tasks[task_id]
-                    logger.info(f"تم حذف المهمة {task_id} من الملف الرئيسي الجديد")
-                
-                # حفظ الملف المحدث
-                with open(self.posting_active_json_file, 'w', encoding='utf-8') as f:
-                    json.dump(tasks, f, indent=4, ensure_ascii=False)
-            
-            # حذف من الملف القديم
-            if os.path.exists(self.active_tasks_json_file):
-                with open(self.active_tasks_json_file, 'r', encoding='utf-8') as f:
-                    tasks = json.load(f)
-                
-                # حذف المهمة المحددة فقط
-                if task_id in tasks:
-                    del tasks[task_id]
-                    logger.info(f"تم حذف المهمة {task_id} من الملف القديم")
-                
-                # حفظ الملف المحدث
-                with open(self.active_tasks_json_file, 'w', encoding='utf-8') as f:
-                    json.dump(tasks, f, indent=4, ensure_ascii=False)
-            
-            # حذف من الملف الاحتياطي القديم
-            old_backup_file = os.path.join('services', 'active_tasks.json')
-            if os.path.exists(old_backup_file):
-                with open(old_backup_file, 'r', encoding='utf-8') as f:
-                    tasks = json.load(f)
-                
-                # حذف المهمة المحددة فقط
-                if task_id in tasks:
-                    del tasks[task_id]
-                    logger.info(f"تم حذف المهمة {task_id} من الملف الاحتياطي القديم")
-                
-                # حفظ الملف المحدث
-                with open(old_backup_file, 'w', encoding='utf-8') as f:
-                    json.dump(tasks, f, indent=4, ensure_ascii=False)
-            
-            logger.info(f"تم حذف المهمة {task_id} من جميع ملفات JSON بنجاح")
-        except Exception as e:
-            logger.error(f"خطأ في حذف المهمة {task_id} من ملفات JSON: {str(e)}")
+                logger.warning(f"فشل حفظ حالة المهام النهائية بعد انتهاء المهمة {task_id}")
     
     def _stop_task_internal(self, task_id):
-        """إيقاف مهمة نشر داخلياً (تم تعديلها لحذف المهمة نهائياً)"""
-        logger.debug(f"[_stop_task_internal] بدء إيقاف وحذف المهمة {task_id}")
-        
+        """إيقاف مهمة داخليًا"""
         with self.tasks_lock:
             if task_id not in self.active_tasks:
-                logger.warning(f"[_stop_task_internal] المهمة {task_id} غير موجودة في الذاكرة، لا يمكن إيقافها")
+                logger.warning(f"محاولة إيقاف مهمة غير موجودة {task_id}")
+                return False
+            
+            if task_id not in self.task_events:
+                logger.warning(f"حدث التوقف للمهمة {task_id} غير موجود")
                 return False
             
             # تعيين حدث التوقف
-            if task_id in self.task_events:
-                self.task_events[task_id].set()
-                logger.debug(f"[_stop_task_internal] تم تعيين حدث التوقف للمهمة {task_id}")
-            else:
-                logger.warning(f"[_stop_task_internal] لم يتم العثور على حدث التوقف للمهمة {task_id}")
+            self.task_events[task_id].set()
+            logger.info(f"تم تعيين حدث التوقف للمهمة {task_id}")
             
-            # حذف المهمة من الذاكرة
-            del self.active_tasks[task_id]
+            # تحديث حالة المهمة
+            self.active_tasks[task_id]["status"] = "stopping"
+            self.active_tasks[task_id]["last_activity"] = datetime.now()
             
-            # حذف الخيط وحدث التوقف إذا كانا موجودين
-            if task_id in self.task_threads:
-                del self.task_threads[task_id]
+            # الحصول على معرف المستخدم
+            user_id = self.active_tasks[task_id].get("user_id")
+            if user_id and user_id in self.user_threads and self.user_threads[user_id] == task_id:
+                # إزالة المهمة من قاموس خيوط المستخدمين - تحسين جديد
+                del self.user_threads[user_id]
+                logger.info(f"تم إزالة المهمة {task_id} من قاموس خيوط المستخدم {user_id} أثناء الإيقاف")
             
-            if task_id in self.task_events:
-                del self.task_events[task_id]
+            return True
+    
+    def stop_posting_task(self, task_id):
+        """إيقاف مهمة نشر محددة"""
+        logger.info(f"طلب إيقاف المهمة {task_id}")
         
-        # حذف المهمة من ملفات JSON
-        self._remove_task_from_json(task_id)
+        # استخدام الدالة الداخلية لإيقاف المهمة
+        result = self._stop_task_internal(task_id)
         
-        # حفظ الحالة بعد حذف المهمة
-        save_result = self.save_active_tasks()
-        if save_result:
-            logger.info(f"تم حفظ حالة المهام بعد حذف المهمة {task_id}")
-        else:
-            logger.warning(f"فشل حفظ حالة المهام بعد حذف المهمة {task_id}")
+        # حفظ الحالة بعد إشارة التوقف
+        self.save_active_tasks()
         
-        return True
+        return result, "تم إرسال إشارة التوقف" if result else "فشل في إرسال إشارة التوقف"
     
     def stop_all_user_tasks(self, user_id):
-        """إيقاف وحذف جميع مهام المستخدم"""
-        logger.info(f"طلب إيقاف وحذف جميع مهام المستخدم {user_id}")
+        """إيقاف جميع مهام مستخدم محدد"""
+        logger.info(f"طلب إيقاف جميع مهام المستخدم {user_id}")
         
-        # البحث عن مهام المستخدم
-        user_tasks = []
-        with self.tasks_lock:
-            user_tasks = [task_id for task_id, task_data in self.active_tasks.items() 
-                         if task_data.get("user_id") == user_id]
-        
-        if not user_tasks:
-            logger.info(f"لم يتم العثور على مهام للمستخدم {user_id}")
-            return 0
-        
-        # إيقاف وحذف كل مهمة
         stopped_count = 0
-        for task_id in user_tasks:
-            if self._stop_task_internal(task_id):
-                stopped_count += 1
+        with self.tasks_lock:
+            # البحث عن جميع المهام النشطة للمستخدم
+            user_tasks = [task_id for task_id, task_data in self.active_tasks.items() 
+                         if task_data.get("user_id") == user_id and 
+                         task_data.get("status") in ["running", "stopping"]]
+            
+            # إيقاف كل مهمة
+            for task_id in user_tasks:
+                if self._stop_task_internal(task_id):
+                    stopped_count += 1
+            
+            # إزالة المستخدم من قاموس خيوط المستخدمين - تحسين جديد
+            if user_id in self.user_threads:
+                del self.user_threads[user_id]
+                logger.info(f"تم إزالة المستخدم {user_id} من قاموس خيوط المستخدمين")
         
-        logger.info(f"تم إيقاف وحذف {stopped_count} مهمة للمستخدم {user_id}")
-        
-        # حفظ الحالة بعد إيقاف وحذف جميع المهام
-        save_result = self.save_active_tasks()
-        if save_result:
-            logger.info(f"تم حفظ حالة المهام بعد إيقاف وحذف {stopped_count} مهمة للمستخدم {user_id}")
-        else:
-            logger.warning(f"فشل حفظ حالة المهام بعد إيقاف وحذف {stopped_count} مهمة للمستخدم {user_id}")
+        # حفظ الحالة بعد إيقاف المهام
+        self.save_active_tasks()
         
         return stopped_count
     
-    def delete_task(self, task_id):
-        """حذف مهمة من الذاكرة (تم دمجها مع stop_posting_task)"""
-        logger.info(f"طلب حذف المهمة {task_id}")
-        
-        # استخدام _stop_task_internal لحذف المهمة
-        return self._stop_task_internal(task_id)
-    
     def get_task_status(self, task_id):
-        """الحصول على حالة مهمة"""
+        """الحصول على بيانات حالة مهمة محددة"""
         with self.tasks_lock:
-            if task_id not in self.active_tasks:
-                return None
-            
-            return self.active_tasks[task_id].copy()
+            task_data = self.active_tasks.get(task_id)
+            return task_data.copy() if task_data else None
     
     def get_all_tasks_status(self, user_id=None):
-        """الحصول على حالة جميع المهام أو مهام مستخدم محدد"""
+        """الحصول على بيانات حالة جميع المهام أو مهام مستخدم محدد"""
         with self.tasks_lock:
             if user_id is not None:
-                # إرجاع مهام المستخدم المحدد فقط
-                return [
-                    {**task_data, "task_id": task_id}
-                    for task_id, task_data in self.active_tasks.items()
-                    if task_data.get("user_id") == user_id
-                ]
+                user_tasks = {tid: tdata.copy() for tid, tdata in self.active_tasks.items() 
+                             if tdata.get("user_id") == user_id}
+                return list(user_tasks.values()) # إرجاع قائمة من قواميس بيانات المهام
             else:
-                # إرجاع جميع المهام
-                return [
-                    {**task_data, "task_id": task_id}
-                    for task_id, task_data in self.active_tasks.items()
-                ]
+                all_tasks_copy = {tid: tdata.copy() for tid, tdata in self.active_tasks.items()}
+                return list(all_tasks_copy.values()) # إرجاع قائمة من قواميس بيانات جميع المهام
