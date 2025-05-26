@@ -19,7 +19,9 @@ def home():
     last_ping_time = time.time()
     uptime_minutes = (time.time() - start_time) / 60
     logger.info(f"Home route accessed. Uptime: {uptime_minutes:.2f} minutes")
-    return f"Bot is running! Uptime: {uptime_minutes:.2f} minutes. Last ping: {time.strftime(\"%Y-%m-%d %H:%M:%S\", time.localtime(last_ping_time))}"def run_flask():
+    return f"Bot is running! Uptime: {uptime_minutes:.2f} minutes. Last ping: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_ping_time))}"
+
+def run_flask():
     """تشغيل خادم Flask"""
     app.run(host='0.0.0.0', port=PORT)
 
