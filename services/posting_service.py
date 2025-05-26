@@ -965,3 +965,46 @@ class PostingService:
             else:
                 all_tasks_copy = {tid: tdata.copy() for tid, tdata in self.active_tasks.items()}
                 return list(all_tasks_copy.values()) # إرجاع قائمة من قواميس بيانات جميع المهام
+
+
+    def clear_all_tasks_permanently(self):
+        """إيقاف ومسح جميع المهام النشطة بشكل دائم"""
+        logger.info("طلب مسح جميع المهام النشطة بشكل دائم")
+        
+        stopped_count = 0
+        with self.tasks_lock:
+            task_ids_to_stop = list(self.task_threads.keys())
+            logger.info(f"محاولة إيقاف {len(task_ids_to_stop)} خيط مهمة نشط...")
+            
+            # إرسال إشارة التوقف لجميع الخيوط النشطة
+            for task_id in task_ids_to_stop:
+                if task_id in self.task_events:
+                    try:
+                        self.task_events[task_id].set() # إشارة للخيط بالتوقف
+                        stopped_count += 1
+                        logger.debug(f"تم إرسال إشارة التوقف للمهمة {task_id}")
+                    except Exception as e:
+                        logger.error(f"خطأ أثناء إرسال إشارة التوقف للمهمة {task_id}: {e}")
+                else:
+                    logger.warning(f"لم يتم العثور على حدث توقف للمهمة {task_id}")
+
+            # مسح جميع القواميس المتعلقة بالمهام
+            logger.info("مسح قواميس المهام النشطة والخيوط والأحداث والمستخدمين...")
+            self.active_tasks.clear()
+            self.task_threads.clear()
+            self.task_events.clear()
+            self.user_threads.clear()
+            logger.info("تم مسح القواميس بنجاح.")
+
+        # حفظ الحالة الفارغة (مهم جداً)
+        logger.info("حفظ الحالة الفارغة للمهام النشطة...")
+        save_success = self.save_active_tasks()
+        
+        if save_success:
+            logger.info(f"تم إيقاف {stopped_count} مهمة ومسح جميع المهام النشطة بنجاح.")
+            return True, "تم مسح جميع المهام النشطة بنجاح."
+        else:
+            logger.error("فشل في حفظ الحالة الفارغة للمهام النشطة بعد محاولة المسح.")
+            # قد نرغب في إعادة تحميل المهام هنا أو تركها فارغة في الذاكرة
+            return False, "حدث خطأ أثناء حفظ الحالة بعد مسح المهام."
+
