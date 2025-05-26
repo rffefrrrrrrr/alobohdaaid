@@ -1,5 +1,5 @@
 # استخدم نسخة بايثون الرسمية (ليست slim أو alpine)
-FROM python:3.10
+FROM python:3.11
 
 WORKDIR /app
 
