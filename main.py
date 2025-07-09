@@ -178,7 +178,7 @@ async def setup_commands(application):
 
 def main():
     logger = setup_logging()
-    logger.info(f"بدأ تشغيل البوت في: {time.strftime("%Y-%m-%d %H:%M:%S")}")
+    logger.info(f'بدأ تشغيل البوت في: {time.strftime("%Y-%m-%d %H:%M:%S")}')
 
     try:
         import fix_config_encoding
@@ -225,6 +225,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
