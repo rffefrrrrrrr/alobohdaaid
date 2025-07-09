@@ -1,10 +1,9 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler
-from services.subscription_service import SubscriptionService
-from services.posting_service import PostingService
-from config.config import ADMIN_USER_ID
-from utils.decorators import admin_only
-from utils.channel_subscription import channel_subscription, auto_channel_subscription_required
+from subscription_service import SubscriptionService
+from config import ADMIN_USER_ID
+from decorators import admin_only, subscription_required
+from channel_subscription import channel_subscription, auto_channel_subscription_required
 import re
 import logging
 import sqlite3
@@ -16,13 +15,11 @@ logger = logging.getLogger(__name__)
 
 # حالات المحادثة
 WAITING_FOR_CHANNEL = 1
-WAITING_FOR_ADMIN_CONTACT = 2
 
 class SubscriptionHandlers:
     def __init__(self, dispatcher):
         self.dispatcher = dispatcher
         self.subscription_service = SubscriptionService()
-        self.posting_service = PostingService()  # إضافة خدمة النشر للوصول إلى حالة المهام
 
         # Initialize user statistics database
         self.init_statistics_db()
@@ -66,19 +63,6 @@ class SubscriptionHandlers:
             )
             ''')
 
-            # Create subscription requests table
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS subscription_requests (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                request_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                status TEXT DEFAULT 'pending'
-            )
-            ''')
-
             # Commit changes
             conn.commit()
             conn.close()
@@ -109,30 +93,12 @@ class SubscriptionHandlers:
 
         # User commands
         self.dispatcher.add_handler(CommandHandler("subscription", self.subscription_status_command))
-        
-        # Subscription request handler
-        subscription_conv_handler = ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(self.subscription_request_callback, pattern='^request_subscription$')
-            ],
-            states={
-                WAITING_FOR_ADMIN_CONTACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.process_admin_contact)]
-            },
-            fallbacks=[CommandHandler("cancel", self.cancel_handler)]
-        )
-        self.dispatcher.add_handler(subscription_conv_handler)
 
         # Statistics command
         self.dispatcher.add_handler(CommandHandler("statistics", self.statistics_command))
 
         # Callback queries
         self.dispatcher.add_handler(CallbackQueryHandler(self.subscription_callback, pattern='^subscription_'))
-        
-        # إضافة معالج لزر حالة النشر
-        self.dispatcher.add_handler(CallbackQueryHandler(self.handle_start_status, pattern='^start_status$'))
-        
-        # إضافة معالج لزر إيقاف النشر
-        self.dispatcher.add_handler(CallbackQueryHandler(self.handle_stop_posting, pattern='^stop_posting$'))
 
         # Group event handlers - for tracking user activity
         self.dispatcher.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.handle_new_chat_members))
@@ -290,7 +256,7 @@ class SubscriptionHandlers:
                                           f"تاريخ انتهاء الاشتراك: {end_date_str}"
 
                     if required_channel:
-                        is_subscribed = await channel_subscription.check_user_subscription(user_id, context.bot)
+                        is_subscribed, _ = await channel_subscription.check_user_subscription(context.bot, user_id)
                         if not is_subscribed:
                             # إضافة تنبيه بضرورة الاشتراك في القناة
                             keyboard = [
@@ -329,9 +295,8 @@ class SubscriptionHandlers:
         except ValueError:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="⚠️ الصيغة غير صحيحة. USER_ID و DAYS يجب أن تكون أرقاماً. الرجاء استخدام: /adduser USER_ID DAYS"
+                text="⚠️ الصيغة غير صحيحة. الرجاء استخدام: /adduser USER_ID DAYS"
             )
-            return
         except Exception as e:
             logger.error(f"خطأ في إضافة اشتراك للمستخدم: {str(e)}")
             await context.bot.send_message(
@@ -609,7 +574,7 @@ class SubscriptionHandlers:
             channel_status = "غير مطلوب"
 
             if required_channel:
-                is_subscribed = await channel_subscription.check_user_subscription(user_id, context.bot)
+                is_subscribed, _ = await channel_subscription.check_user_subscription(context.bot, user_id)
                 channel_status = f"✅ مشترك في {required_channel}" if is_subscribed else f"❌ غير مشترك في {required_channel}"
 
             # Get user group activity
@@ -710,97 +675,64 @@ class SubscriptionHandlers:
                 text=f"❌ حدث خطأ: {str(e)}"
             )
 
-    # استخدام المزخرف auto_channel_subscription_required مباشرة للتحقق من اشتراك القناة
-    @auto_channel_subscription_required
+    @subscription_required
     async def subscription_status_command(self, update: Update, context: CallbackContext):
-        """Show user's subscription status and allow requesting subscription"""
+        """Show user's subscription status"""
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
-        user = update.effective_user
 
         try:
             # Get user
-            db_user = self.subscription_service.get_user(user_id)
-            if not db_user:
-                db_user = self.subscription_service.create_user(
-                    user_id,
-                    user.username,
-                    user.first_name,
-                    user.last_name
+            user = self.subscription_service.get_user(user_id)
+
+            if not user:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ ليس لديك اشتراك نشط. الرجاء التواصل مع المسؤول للحصول على اشتراك."
                 )
+                return
 
             # Check subscription
-            has_subscription = db_user.has_active_subscription()
-            end_date = db_user.subscription_end
+            has_subscription = user.has_active_subscription()
+            end_date = user.subscription_end
 
-            # التحقق من اشتراك المستخدم في القناة الإجبارية باستخدام channel_subscription مباشرة
+            # التحقق من اشتراك المستخدم في القناة الإجبارية
             required_channel = channel_subscription.get_required_channel()
             channel_status = "غير مطلوب"
 
             if required_channel:
-                # استخدام دالة check_user_subscription مباشرة من channel_subscription
-                is_subscribed = await channel_subscription.check_user_subscription(user_id, context.bot)
+                is_subscribed, _ = await channel_subscription.check_user_subscription(context.bot, user_id)
                 channel_status = f"✅ مشترك في {required_channel}" if is_subscribed else f"❌ غير مشترك في {required_channel}"
-
-                # إذا كان المستخدم غير مشترك في القناة، إظهار زر للاشتراك
-                if not is_subscribed:
-                    keyboard = [
-                        [InlineKeyboardButton("✅ اشترك في القناة", url=f"https://t.me/{required_channel[1:]}")],
-                        [InlineKeyboardButton("🔄 تحقق مرة أخرى", callback_data="subscription_check")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"⚠️ يجب عليك الاشتراك في القناة {required_channel} للاستمرار في استخدام البوت.",
-                        reply_markup=reply_markup
-                    )
-                    return
 
             if has_subscription:
                 # Fix: Check if end_date is None before calling strftime
                 end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S') if end_date else "غير محدد"
-                message = f"✅ لديك اشتراك نشط.\n" \
-                         f"تاريخ انتهاء الاشتراك: {end_date_str}\n" \
-                         f"حالة اشتراك القناة: {channel_status}"
-                
-                # إضافة أزرار للمستخدم
-                keyboard = [
-                    [InlineKeyboardButton("📊 حالة النشر", callback_data="start_status")],
-                    [InlineKeyboardButton("🔙 العودة للبداية", callback_data="start_back")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                # Create keyboard for channel subscription if needed
+                keyboard = None
+                if required_channel and not is_subscribed:
+                    keyboard = [
+                        [InlineKeyboardButton("✅ اشترك في القناة", url=f"https://t.me/{required_channel[1:]}")],
+                        [InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="subscription_check")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                else:
+                    reply_markup = None
+
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"✅ لديك اشتراك نشط.\n"
+                         f"تاريخ انتهاء الاشتراك: {end_date_str}\n"
+                         f"حالة اشتراك القناة: {channel_status}",
+                    reply_markup=reply_markup
+                )
             else:
-                message = f"❌ ليس لديك اشتراك نشط.\n" \
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ ليس لديك اشتراك نشط. الرجاء التواصل مع المسؤول للحصول على اشتراك.\n"
                          f"حالة اشتراك القناة: {channel_status}"
-                
-                # إضافة زر لطلب اشتراك
-                keyboard = [
-                    [InlineKeyboardButton("🔔 طلب اشتراك", callback_data="request_subscription")],
-                    [InlineKeyboardButton("🔙 العودة للبداية", callback_data="start_back")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
+                )
 
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                reply_markup=reply_markup
-            )
-
-            # إذا لم يكن لدى المستخدم اشتراك نشط، إرسال إشعار للمشرفين
-            if not has_subscription:
-                # إرسال إشعار للمشرفين عن مستخدم بدون اشتراك
-                admin_ids = self.get_admin_ids()
-                if admin_ids:
-                    user_mention = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name if user.last_name else ''}"
-                    for admin_id in admin_ids:
-                        try:
-                            await context.bot.send_message(
-                                chat_id=admin_id,
-                                text=f"⚠️ المستخدم {user_mention} (ID: {user_id}) استخدم أمر /subscription وليس لديه اشتراك نشط."
-                            )
-                        except Exception as e:
-                            logger.error(f"خطأ في إرسال إشعار للمشرف {admin_id}: {str(e)}")
         except Exception as e:
             logger.error(f"خطأ في عرض حالة اشتراك المستخدم: {str(e)}")
             await context.bot.send_message(
@@ -808,347 +740,40 @@ class SubscriptionHandlers:
                 text=f"❌ حدث خطأ: {str(e)}"
             )
 
-    async def subscription_request_callback(self, update: Update, context: CallbackContext):
-        """Handle subscription request callback"""
+    async def subscription_callback(self, update: Update, context: CallbackContext):
+        """Handle subscription-related callbacks"""
         query = update.callback_query
-        user_id = query.from_user.id
-        user = query.from_user
+        user_id = update.effective_user.id
 
-        try:
-            await query.answer()
+        # Answer callback query to stop loading animation
+        await query.answer()
 
-            # إضافة طلب اشتراك جديد
-            conn = sqlite3.connect('data/user_statistics.sqlite')
-            cursor = conn.cursor()
+        if query.data == "subscription_check":
+            # Check if user is subscribed to the required channel
+            required_channel = channel_subscription.get_required_channel()
 
-            # التحقق من وجود طلب سابق
-            cursor.execute('SELECT * FROM subscription_requests WHERE user_id = ? AND status = "pending"', (user_id,))
-            existing_request = cursor.fetchone()
-
-            if existing_request:
+            if not required_channel:
                 await query.edit_message_text(
-                    text="⚠️ لديك بالفعل طلب اشتراك معلق. يرجى الانتظار حتى يتم معالجته."
+                    text="✅ لا توجد قناة مطلوبة للاشتراك حالياً."
                 )
-                conn.close()
                 return
 
-            # إضافة طلب جديد
-            cursor.execute(
-                '''
-                INSERT INTO subscription_requests 
-                (user_id, username, first_name, last_name, request_time, status) 
-                VALUES (?, ?, ?, ?, datetime('now'), "pending")
-                ''',
-                (user_id, user.username, user.first_name, user.last_name)
-            )
-            conn.commit()
-            conn.close()
+            is_subscribed, _ = await channel_subscription.check_user_subscription(context.bot, user_id)
 
-            # إرسال رسالة للمستخدم
-            await query.edit_message_text(
-                text="✅ تم إرسال طلب الاشتراك بنجاح.\n\n"
-                     "سيتم التواصل معك قريباً من قبل المشرف.\n\n"
-                     "يرجى إدخال معلومات التواصل الخاصة بك (مثل رقم الهاتف أو البريد الإلكتروني):"
-            )
-
-            # إرسال إشعار للمشرفين
-            admin_ids = self.get_admin_ids()
-            if admin_ids:
-                user_mention = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name if user.last_name else ''}"
-                for admin_id in admin_ids:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=f"🔔 طلب اشتراك جديد!\n\n"
-                                 f"المستخدم: {user_mention}\n"
-                                 f"معرف المستخدم: {user_id}\n"
-                                 f"الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                                 f"استخدم الأمر /adduser {user_id} [عدد_الأيام] لإضافة اشتراك لهذا المستخدم."
-                        )
-                    except Exception as e:
-                        logger.error(f"خطأ في إرسال إشعار للمشرف {admin_id}: {str(e)}")
-
-            return WAITING_FOR_ADMIN_CONTACT
-
-        except Exception as e:
-            logger.error(f"خطأ في معالجة طلب الاشتراك: {str(e)}")
-            try:
+            if is_subscribed:
                 await query.edit_message_text(
-                    text=f"❌ حدث خطأ في معالجة طلب الاشتراك: {str(e)}"
-                )
-            except:
-                pass
-            return ConversationHandler.END
-
-    async def process_admin_contact(self, update: Update, context: CallbackContext):
-        """Process admin contact information provided by the user"""
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-        user = update.effective_user
-        contact_info = update.message.text
-
-        try:
-            # إرسال معلومات التواصل للمشرفين
-            admin_ids = self.get_admin_ids()
-            if admin_ids:
-                user_mention = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name if user.last_name else ''}"
-                for admin_id in admin_ids:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=f"📞 معلومات التواصل للمستخدم {user_mention} (ID: {user_id}):\n\n"
-                                 f"{contact_info}\n\n"
-                                 f"استخدم الأمر /adduser {user_id} [عدد_الأيام] لإضافة اشتراك لهذا المستخدم."
-                        )
-                    except Exception as e:
-                        logger.error(f"خطأ في إرسال معلومات التواصل للمشرف {admin_id}: {str(e)}")
-
-            # إرسال رسالة تأكيد للمستخدم
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="✅ تم إرسال معلومات التواصل الخاصة بك بنجاح.\n\n"
-                     "سيتم التواصل معك قريباً من قبل المشرف لإكمال عملية الاشتراك."
-            )
-
-            return ConversationHandler.END
-
-        except Exception as e:
-            logger.error(f"خطأ في معالجة معلومات التواصل: {str(e)}")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"❌ حدث خطأ في معالجة معلومات التواصل: {str(e)}"
-            )
-            return ConversationHandler.END
-
-    async def subscription_callback(self, update: Update, context: CallbackContext):
-        """Handle subscription callbacks"""
-        query = update.callback_query
-        user_id = query.from_user.id
-        data = query.data
-
-        try:
-            await query.answer()
-
-            if data == 'subscription_check':
-                # التحقق من اشتراك المستخدم في القناة الإجبارية باستخدام channel_subscription مباشرة
-                required_channel = channel_subscription.get_required_channel()
-                if required_channel:
-                    # استخدام دالة check_user_subscription مباشرة من channel_subscription
-                    is_subscribed = await channel_subscription.check_user_subscription(user_id, context.bot)
-                    if is_subscribed:
-                        await query.edit_message_text(
-                            text=f"✅ تم التحقق من اشتراكك في {required_channel} بنجاح.\n\n"
-                                 f"يمكنك الآن استخدام البوت."
-                        )
-                    else:
-                        # إنشاء زر للاشتراك في القناة
-                        keyboard = [
-                            [InlineKeyboardButton("✅ اشترك في القناة", url=f"https://t.me/{required_channel[1:]}")],
-                            [InlineKeyboardButton("🔄 تحقق مرة أخرى", callback_data="subscription_check")]
-                        ]
-                        reply_markup = InlineKeyboardMarkup(keyboard)
-
-                        await query.edit_message_text(
-                            text=f"❌ لم يتم العثور على اشتراكك في {required_channel}.\n\n"
-                                 f"يرجى الاشتراك في القناة ثم الضغط على زر التحقق.",
-                            reply_markup=reply_markup
-                        )
-                else:
-                    await query.edit_message_text(
-                        text="✅ لا يوجد قناة مطلوبة للاشتراك حالياً."
-                    )
-            
-            # معالجة أزرار إدارة المستخدمين
-            elif data.startswith('subscription_add_'):
-                # إضافة اشتراك لمستخدم
-                if data == 'subscription_add_new':
-                    # إضافة مستخدم جديد
-                    await query.edit_message_text(
-                        text="➕ إضافة مستخدم جديد\n\n"
-                             "استخدم الأمر /adduser USER_ID DAYS لإضافة اشتراك لمستخدم جديد."
-                    )
-                else:
-                    # إضافة اشتراك لمستخدم موجود
-                    target_user_id = int(data.split('_')[-1])
-                    await query.edit_message_text(
-                        text=f"➕ إضافة اشتراك للمستخدم {target_user_id}\n\n"
-                             f"استخدم الأمر /adduser {target_user_id} DAYS لإضافة اشتراك لهذا المستخدم."
-                    )
-            
-            elif data.startswith('subscription_remove_'):
-                # إلغاء اشتراك مستخدم
-                target_user_id = int(data.split('_')[-1])
-                await query.edit_message_text(
-                    text=f"➖ إلغاء اشتراك المستخدم {target_user_id}\n\n"
-                         f"استخدم الأمر /removeuser {target_user_id} لإلغاء اشتراك هذا المستخدم."
-                )
-            
-            elif data == 'subscription_requests':
-                # عرض طلبات الاشتراك المعلقة
-                conn = sqlite3.connect('data/user_statistics.sqlite')
-                cursor = conn.cursor()
-                cursor.execute('SELECT * FROM subscription_requests WHERE status = "pending" ORDER BY request_time DESC')
-                requests = cursor.fetchall()
-                conn.close()
-
-                if not requests:
-                    await query.edit_message_text(
-                        text="✅ لا توجد طلبات اشتراك معلقة."
-                    )
-                    return
-
-                message = f"🔔 طلبات الاشتراك المعلقة ({len(requests)}):\n\n"
-                for i, req in enumerate(requests, 1):
-                    req_id, req_user_id, username, first_name, last_name, req_time, status = req
-                    user_mention = f"@{username}" if username else f"{first_name} {last_name if last_name else ''}"
-                    message += f"{i}. {user_mention} (ID: {req_user_id}) - {req_time}\n"
-                    message += f"   استخدم: /adduser {req_user_id} [عدد_الأيام]\n\n"
-
-                await query.edit_message_text(
-                    text=message
-                )
-            
-            elif data == 'admin_back':
-                # العودة إلى قائمة المشرف
-                if hasattr(context.bot, 'admin_handlers') and hasattr(context.bot.admin_handlers, 'admin_command'):
-                    # إنشاء رسالة وهمية لتمرير إلى معالج الإدارة
-                    class DummyMessage:
-                        def __init__(self, chat_id, from_user):
-                            self.chat_id = chat_id
-                            self.from_user = from_user
-
-                        async def reply_text(self, text, reply_markup=None):
-                            # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                            await query.edit_message_text(
-                                text=text,
-                                reply_markup=reply_markup
-                            )
-
-                    # إنشاء تحديث وهمي
-                    update.message = DummyMessage(
-                        chat_id=update.effective_chat.id,
-                        from_user=update.effective_user
-                    )
-
-                    # استدعاء معالج الإدارة
-                    await context.bot.admin_handlers.admin_command(update, context)
-                else:
-                    # إذا لم يكن معالج الإدارة متاحاً، عرض رسالة بديلة
-                    await query.edit_message_text(
-                        text="👨‍💼 لوحة المشرف\n\n"
-                             "استخدم الأمر /admin للوصول إلى لوحة تحكم المشرف."
-                    )
-        except Exception as e:
-            logger.error(f"خطأ في معالجة استدعاء الاشتراك: {str(e)}")
-            try:
-                await query.edit_message_text(
-                    text=f"❌ حدث خطأ: {str(e)}"
-                )
-            except:
-                pass
-
-    # إضافة معالج لزر حالة النشر - نسخ منطق check_status من posting_handlers.py
-    async def handle_start_status(self, update: Update, context: CallbackContext):
-        """معالج زر حالة النشر - نفس منطق check_status في posting_handlers.py"""
-        try:
-            query = update.callback_query
-            await query.answer()
-            
-            # الحصول على معرف المستخدم
-            user_id = update.effective_user.id
-            
-            # الحصول على حالة النشر
-            tasks = self.posting_service.get_all_tasks_status(user_id)
-            
-            if tasks:
-                # المهام النشطة
-                active_tasks = [task for task in tasks if task.get('status') == 'running']
-                
-                if not active_tasks:
-                    await query.edit_message_text(
-                        text="📊 *حالة النشر:*\n\n"
-                             "لا يوجد نشر نشط حالياً.",
-                        parse_mode="Markdown"
-                    )
-                    return
-                
-                # إنشاء رسالة الحالة
-                status_text = "📊 *حالة النشر النشطة:*\n\n"
-                
-                for task in active_tasks:
-                    group_count = len(task.get('group_ids', []))
-                    message_count = task.get('message_count', 0)
-                    # التأكد من أن message_count رقم صحيح
-                    if not isinstance(message_count, int):
-                        message_count = 0
-                    
-                    status_text += f"🆔 *معرف المهمة:* `{task.get('task_id', 'N/A')}`\n"
-                    status_text += f"👥 *المجموعات:* {group_count} مجموعة\n"
-                    status_text += f"✅ *تم النشر في:* {message_count} مجموعة\n"
-                    
-                    if task.get('exact_time'):
-                        status_text += f"🕒 *التوقيت:* {task.get('exact_time')}\n"
-                    elif task.get('delay_seconds', 0) > 0:
-                        status_text += f"⏳ *التأخير:* {task.get('delay_seconds')} ثانية\n"
-                    
-                    start_time_str = task.get('start_time', 'غير متوفر')
-                    if isinstance(start_time_str, datetime):
-                        start_time_str = start_time_str.strftime("%Y-%m-%d %H:%M:%S")
-                    status_text += f"⏱ *بدأ في:* {start_time_str}\n\n"
-                
-                # إنشاء لوحة المفاتيح
-                keyboard = [
-                    [InlineKeyboardButton("⛔ إيقاف كل النشر", callback_data="stop_posting")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                # تحديث رسالة الحالة
-                await query.edit_message_text(
-                    text=status_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    text=f"✅ تم التحقق من اشتراكك في القناة {required_channel} بنجاح!\n\n"
+                         f"يمكنك الآن استخدام جميع ميزات البوت."
                 )
             else:
-                # لا توجد مهام نشطة
-                await query.edit_message_text(
-                    text="📊 *حالة النشر:*\n\n"
-                         "لا يوجد نشر نشط حالياً.",
-                    parse_mode="Markdown"
-                )
-        except Exception as e:
-            logger.error(f"خطأ في التحقق من حالة النشر: {str(e)}")
-            await query.edit_message_text(
-                text="❌ *حدث خطأ أثناء التحقق من حالة النشر. يرجى المحاولة مرة أخرى.*",
-                parse_mode="Markdown"
-            )
+                keyboard = [
+                    [InlineKeyboardButton("✅ اشترك في القناة", url=f"https://t.me/{required_channel[1:]}")],
+                    [InlineKeyboardButton("🔄 تحقق مرة أخرى", callback_data="subscription_check")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # إضافة معالج لزر إيقاف النشر - نسخ منطق handle_stop_posting من posting_handlers.py
-    async def handle_stop_posting(self, update: Update, context: CallbackContext):
-        """معالج زر إيقاف النشر - نفس منطق handle_stop_posting في posting_handlers.py"""
-        try:
-            query = update.callback_query
-            await query.answer()
-            
-            # الحصول على معرف المستخدم
-            user_id = update.effective_user.id
-            
-            # الحصول على جميع المهام لهذا المستخدم قبل إيقافها
-            tasks = self.posting_service.get_all_tasks_status(user_id)
-            active_tasks = [task for task in tasks if task.get('status') == 'running']
-            
-            # إيقاف النشر وحذف المهام (وليس فقط وضع علامة "متوقف")
-            stopped_count = self.posting_service.stop_all_user_tasks(user_id)
-            success = stopped_count > 0
-            result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
-            
-            # تحديث الرسالة
-            await query.edit_message_text(
-                text=f"{'✅' if success else '❌'} *{result_message}*",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logger.error(f"خطأ في إيقاف النشر: {str(e)}")
-            await query.edit_message_text(
-                text="❌ *حدث خطأ أثناء إيقاف النشر. يرجى المحاولة مرة أخرى.*",
-                parse_mode="Markdown"
-            )
+                await query.edit_message_text(
+                    text=f"❌ لم يتم العثور على اشتراكك في القناة {required_channel}.\n\n"
+                         f"يرجى الاشتراك في القناة ثم الضغط على زر 'تحقق مرة أخرى'.",
+                    reply_markup=reply_markup
+                )
