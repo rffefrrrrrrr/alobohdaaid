@@ -1,7 +1,7 @@
 from functools import wraps
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-from utils.channel_subscription import subscription_manager
+from channel_subscription import subscription_manager
 import logging
 
 # إعداد التسجيل
