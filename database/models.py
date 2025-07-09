@@ -11,7 +11,6 @@ class User:
         self.referral_code = None
         self.referred_by = None
         self.subscription_end = None
-        self.trial_claimed = False # Initialize trial_claimed
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
     
@@ -34,8 +33,7 @@ class User:
         user = cls(data['user_id'], data.get('username'), data.get('first_name'), data.get('last_name'))
         user.is_admin = bool(data.get('is_admin', False))
         user.referral_code = data.get('referral_code')
-        user.referred_by = data.get("referred_by")
-        user.trial_claimed = bool(data.get("trial_claimed", False)) # Add trial_claimed to from_dict
+        user.referred_by = data.get('referred_by')
         
         # Convert subscription_end from string to datetime if it exists
         if data.get('subscription_end'):
@@ -68,7 +66,6 @@ class User:
             'is_admin': 1 if self.is_admin else 0,
             'referral_code': self.referral_code,
             'referred_by': self.referred_by,
-            'trial_claimed': 1 if self.trial_claimed else 0, # Add trial_claimed to to_dict
             'subscription_end': self.subscription_end.isoformat() if self.subscription_end else None,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
