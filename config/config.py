@@ -9,7 +9,7 @@ load_dotenv()
 
 # تعيين المتغيرات مباشرة إذا لم يتم العثور عليها في ملف .env
 # رمز البوت - يستخدم في bot.py كـ TELEGRAM_BOT_TOKEN
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7768591559:AAHQDWfMz0VZMKVhQ_0c-CYQT8UCXHfGAJw")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # معرف المستخدم المسؤول
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "6459577996"))
@@ -28,3 +28,5 @@ API_HASH = os.getenv("API_HASH", "0123456789abcdef0123456789abcdef")
 # إضافة متغيرات بديلة للتوافق مع الكود القديم والبيئة في Glitch
 TELEGRAM_API_ID = API_ID
 TELEGRAM_API_HASH = API_HASH
+
+
