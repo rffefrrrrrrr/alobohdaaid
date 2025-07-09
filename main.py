@@ -62,7 +62,6 @@ def set_admin_user():
         if not user.is_admin:
             user.is_admin = True
             subscription_service.save_user(user)
-            print(f"تم تعيين المستخدم {your_user_id} كمسؤول بنجاح")
         else:
             print(f"المستخدم {your_user_id} هو مسؤول بالفعل")
     else:
@@ -111,7 +110,7 @@ def check_and_create_bot_token():
     config_path = os.path.join(current_dir, "config", "config.py")
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     token_placeholder = "YOUR_BOT_TOKEN_HERE"
-    default_content = f"# تكوين البوت\nBOT_TOKEN = \"{token_placeholder}\"  # قم بتغيير هذا إلى رمز البوت الخاص بك\nADMIN_USER_ID = 7207131508 # معرف المشرف الرئيسي\nDEFAULT_SUBSCRIPTION_DAYS = 30 # مدة الاشتراك الافتراضية بالأيام\n"
+    default_content = f"# تكوين البوت\nBOT_TOKEN = os.getenv(\"BOT_TOKEN\")  # قم بتغيير هذا إلى رمز البوت الخاص بك\nADMIN_USER_ID = 7207131508 # معرف المشرف الرئيسي\nDEFAULT_SUBSCRIPTION_DAYS = 30 # مدة الاشتراك الافتراضية بالأيام\n"
     if not os.path.exists(config_path):
         try:
             with open(config_path, "w", encoding="utf-8") as f:
@@ -125,7 +124,7 @@ def check_and_create_bot_token():
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            if "BOT_TOKEN" not in content or token_placeholder in content:
+            if "BOT_TOKEN" not in content or "YOUR_BOT_TOKEN_HERE" in content:
                 # Overwrite if token missing or still placeholder
                 with open(config_path, "w", encoding="utf-8") as f:
                     f.write(default_content)
@@ -177,7 +176,7 @@ async def setup_commands(application):
 
 def main():
     logger = setup_logging()
-    logger.info(f"بدأ تشغيل البوت في: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"بدأ تشغيل البوت في: {time.strftime("%Y-%m-%d %H:%M:%S")}")
 
     try:
         import fix_config_encoding
@@ -224,4 +223,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
