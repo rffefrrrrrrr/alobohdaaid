@@ -62,10 +62,12 @@ def set_admin_user():
         if not user.is_admin:
             user.is_admin = True
             subscription_service.save_user(user)
+            print(f"تم تعيين المستخدم {your_user_id} كمسؤول بنجاح")
         else:
             print(f"المستخدم {your_user_id} هو مسؤول بالفعل")
     else:
-        new_user = User(id=your_user_id, is_admin=True)
+        new_user = User(your_user_id)
+        new_user.is_admin = True
         subscription_service.save_user(new_user)
         print(f"تم إنشاء مستخدم جديد {your_user_id} وتعيينه كمسؤول")
 
