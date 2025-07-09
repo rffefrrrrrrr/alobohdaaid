@@ -1,18 +1,18 @@
 import logging
 from datetime import datetime, timedelta
 import uuid
-from db import Database
+from database.db import Database
 from models import User, Subscription
 from config import ADMIN_USER_ID, DEFAULT_SUBSCRIPTION_DAYS
 
 class SubscriptionService:
     def __init__(self):
         self.db = Database()
-        self.users_collection = self.db.get_collection('users')
-        self.subscriptions_collection = self.db.get_collection('subscriptions')
+        self.users_collection = self.db.get_collection("users")
+        self.subscriptions_collection = self.db.get_collection("subscriptions")
 
     def get_user(self, user_id):
-        user_data = self.users_collection.find_one({'user_id': user_id})
+        user_data = self.users_collection.find_one({"user_id": user_id})
         if user_data:
             return User.from_dict(user_data)
         return None
@@ -20,8 +20,8 @@ class SubscriptionService:
     def save_user(self, user):
         user.updated_at = datetime.now()
         self.users_collection.update_one(
-            {'user_id': user.user_id},
-            {'$set': user.to_dict()},
+            {"user_id": user.user_id},
+            {"$set": user.to_dict()},
             upsert=True
         )
         return user
@@ -38,7 +38,7 @@ class SubscriptionService:
             user.username = "S_S_0_c"
         else:
             # Ensure username doesn't have @ prefix
-            user.username = username.lstrip('@')
+            user.username = username.lstrip("@")
 
         # Generate unique referral code
         user.referral_code = self._generate_referral_code(user_id)
@@ -94,15 +94,15 @@ class SubscriptionService:
     def get_all_subscribers(self):
         current_time = datetime.now()
         subscribers = self.users_collection.find({
-            'subscription_end': {'$gt': current_time}
+            "subscription_end": {"$gt": current_time}
         })
         return [User.from_dict(user) for user in subscribers]
 
     def get_expired_subscribers(self):
         current_time = datetime.now()
         expired = self.users_collection.find({
-            'subscription_end': {'$lt': current_time},
-            'subscription_end': {'$ne': None}
+            "subscription_end": {"$lt": current_time},
+            "subscription_end": {"$ne": None}
         })
         return [User.from_dict(user) for user in expired]
 
@@ -140,7 +140,7 @@ class SubscriptionService:
         try:
             current_time = datetime.now()
             return self.users_collection.count_documents({
-                'subscription_end': {'$gt': current_time}
+                "subscription_end": {"$gt": current_time}
             })
         except Exception as e:
             logging.error(f"خطأ في الحصول على عدد المستخدمين النشطين: {str(e)}")
@@ -152,7 +152,7 @@ class SubscriptionService:
         """
         try:
             return self.users_collection.count_documents({
-                'is_admin': True
+                "is_admin": True
             })
         except Exception as e:
             logging.error(f"خطأ في الحصول على عدد المشرفين: {str(e)}")
@@ -165,7 +165,7 @@ class SubscriptionService:
         try:
             current_time = datetime.now()
             users = self.users_collection.find({
-                'subscription_end': {'$gt': current_time}
+                "subscription_end": {"$gt": current_time}
             })
             return [User.from_dict(user) for user in users]
         except Exception as e:
@@ -179,11 +179,11 @@ class SubscriptionService:
             - True if successful
         """
         # Update channel settings in database
-        self.db.get_collection('settings').update_one(
-            {'type': 'channel_subscription'},
-            {'$set': {
-                'enabled': False,
-                'updated_at': datetime.now()
+        self.db.get_collection("settings").update_one(
+            {"type": "channel_subscription"},
+            {"$set": {
+                "enabled": False,
+                "updated_at": datetime.now()
             }}
         )
         return True
@@ -195,11 +195,11 @@ class SubscriptionService:
             - True if successful
         """
         # Update channel settings in database
-        self.db.get_collection('settings').update_one(
-            {'type': 'channel_subscription'},
-            {'$set': {
-                'enabled': True,
-                'updated_at': datetime.now()
+        self.db.get_collection("settings").update_one(
+            {"type": "channel_subscription"},
+            {"$set": {
+                "enabled": True,
+                "updated_at": datetime.now()
             }},
             upsert=True
         )
@@ -211,7 +211,7 @@ class SubscriptionService:
         Returns:
             - Channel settings dict or None
         """
-        settings = self.db.get_collection('settings').find_one({'type': 'channel_subscription'})
+        settings = self.db.get_collection("settings").find_one({"type": "channel_subscription"})
         return settings
 
     def check_channel_subscription(self, user_id, channel_username):
@@ -252,3 +252,5 @@ class SubscriptionService:
 
         # All other commands require subscription
         return False
+
+
