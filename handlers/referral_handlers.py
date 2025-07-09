@@ -1,908 +1,262 @@
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
+from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from referral_service import ReferralService
 from subscription_service import SubscriptionService
-# تعديل: جعل استيراد AuthService اختيارياً
-try:
-    from auth_service import AuthService
-    HAS_AUTH_SERVICE = True
-except ImportError:
-    HAS_AUTH_SERVICE = False
-from group_service import GroupService
-from posting_service import PostingService
-try:
-    from response_service import ResponseService
-    HAS_RESPONSE_SERVICE = True
-except ImportError:
-    HAS_RESPONSE_SERVICE = False
-try:
-    from referral_service import ReferralService
-    HAS_REFERRAL_SERVICE = True
-except ImportError:
-    HAS_REFERRAL_SERVICE = False
+# Removed subscription_required import as it's no longer needed
+import re
+from datetime import datetime
 
-class StartHelpHandlers:
+class ReferralHandlers:
     def __init__(self, dispatcher):
         self.dispatcher = dispatcher
+        self.referral_service = ReferralService()
         self.subscription_service = SubscriptionService()
-        # تعديل: التحقق من وجود الخدمات قبل استخدامها
-        if HAS_AUTH_SERVICE:
-            self.auth_service = AuthService()
-        else:
-            self.auth_service = None
-        self.group_service = GroupService()
-        self.posting_service = PostingService()
-        if HAS_RESPONSE_SERVICE:
-            self.response_service = ResponseService()
-        else:
-            self.response_service = None
-        if HAS_REFERRAL_SERVICE:
-            self.referral_service = ReferralService()
-        else:
-            self.referral_service = None
-
+        
         # Register handlers
         self.register_handlers()
-
+    
     def register_handlers(self):
-        # Register start and help commands
-        self.dispatcher.add_handler(CommandHandler("start", self.start_command))
-        self.dispatcher.add_handler(CommandHandler("help", self.help_command))
-
-        # Register callback queries - Fix: Use more specific pattern to avoid conflicts
-        self.dispatcher.add_handler(CallbackQueryHandler(self.start_help_callback, pattern='^(start_|help_)'))
-
-    async def start_command(self, update: Update, context: CallbackContext):
-        """Handle the /start command with interactive buttons"""
-        user = update.effective_user
-        user_id = user.id
-
-        # Get or create user in database
-        db_user = self.subscription_service.get_user(user_id)
-        if not db_user:
-            db_user = self.subscription_service.create_user(
-                user_id,
-                user.username,
-                user.first_name,
-                user.last_name
+        # Referral commands - available to all users
+        self.dispatcher.add_handler(CommandHandler("referral", self.referral_command))
+        self.dispatcher.add_handler(CommandHandler("my_referrals", self.my_referrals_command))
+        
+        # Handle start with referral parameter
+        self.dispatcher.add_handler(MessageHandler(filters.Regex(r'^/start ref_'), self.start_with_referral))
+        
+        # Callback queries
+        self.dispatcher.add_handler(CallbackQueryHandler(self.referral_callback, pattern='^referral_'))
+    
+    # Available to all users without subscription requirement
+    async def referral_command(self, update: Update, context: CallbackContext):
+        """Show referral link and stats"""
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        
+        # Generate referral link
+        referral_link = self.referral_service.generate_referral_link(user_id)
+        
+        if not referral_link:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="❌ حدث خطأ أثناء إنشاء رابط الإحالة. يرجى المحاولة مرة أخرى لاحقاً."
             )
-
-        # Check if admin
-        is_admin = db_user and db_user.is_admin
-
-        # Welcome message
-        welcome_text = f"👋 مرحباً {user.first_name}!\n\n"
-
-        if is_admin:
-            welcome_text += "🔰 أنت مسجل كمشرف في النظام.\n\n"
-
-        welcome_text += "🤖 أنا بوت احترافي للنشر التلقائي في مجموعات تيليجرام.\n\n"
-
-        # Check subscription status
-        has_subscription = db_user.has_active_subscription()
-
-        # Create keyboard with options
-        keyboard = []
-
-        # Add referral button for all users (new feature)
-        keyboard.append([
-            InlineKeyboardButton("🔗 الإحالة", callback_data="start_referral")
-        ])
-
-        if has_subscription:
-            if db_user.subscription_end:
-                end_date = db_user.subscription_end.strftime('%Y-%m-%d')
-                welcome_text += f"✅ لديك اشتراك نشط حتى: {end_date}\n\n"
-            else:
-                welcome_text += f"✅ لديك اشتراك نشط غير محدود المدة\n\n"
-
-            # Check if user is logged in
-            session_string = None
-            if self.auth_service is not None:
-                session_string = self.auth_service.get_user_session(user_id)
-            if session_string:
-                welcome_text += "✅ أنت مسجل الدخول بالفعل ويمكنك استخدام جميع ميزات البوت.\n\n"
-
-                # Add main feature buttons
-                keyboard.append([
-                    InlineKeyboardButton("👥 المجموعات", callback_data="start_groups"),
-                    InlineKeyboardButton("📝 النشر", callback_data="start_post")
-                ])
-
-                keyboard.append([
-                    InlineKeyboardButton("🤖 الردود التلقائية", callback_data="start_responses")
-                ])
-
-                # Add account management buttons
-                keyboard.append([
-                    InlineKeyboardButton("🔄 تحديث المجموعات", callback_data="start_refresh_groups"),
-                    InlineKeyboardButton("📊 حالة النشر", callback_data="start_status")
-                ])
-
-                keyboard.append([
-                    InlineKeyboardButton("📋 المساعدة", callback_data="start_help")
-                ])
-
-                # Add admin button if user is admin
-                if is_admin:
-                    keyboard.append([
-                        InlineKeyboardButton("👨‍💼 لوحة المشرف", callback_data="start_admin")
-                    ])
-            else:
-                welcome_text += "⚠️ أنت لم تقم بتسجيل الدخول بعد.\n\n"
-
-                # Add login buttons
-                keyboard.append([
-                    InlineKeyboardButton("🔑 تسجيل الدخول", callback_data="start_login"),
-                    InlineKeyboardButton("🔐 إنشاء Session", callback_data="start_generate_session")
-                ])
-
-                keyboard.append([
-                    InlineKeyboardButton("📋 المساعدة", callback_data="start_help")
-                ])
-
-                # Add admin button if user is admin
-                if is_admin:
-                    keyboard.append([
-                        InlineKeyboardButton("👨‍💼 لوحة المشرف", callback_data="start_admin")
-                    ])
-        else:
-            welcome_text += "⚠️ ليس لديك اشتراك نشط.\n\n"
-
-            # Create keyboard with subscription option
-            keyboard.append([
-                InlineKeyboardButton("🔔 طلب اشتراك", callback_data="start_subscription")
-            ])
-
-            keyboard.append([
-                InlineKeyboardButton("📋 المساعدة", callback_data="start_help")
-            ])
-
-            # Add admin button if user is admin
-            if is_admin:
-                keyboard.append([
-                    InlineKeyboardButton("👨‍💼 لوحة المشرف", callback_data="start_admin")
-                ])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # تعديل: التحقق من وجود update.message قبل استخدامه
-        if update.message:
-            await update.message.reply_text(
-                text=welcome_text,
-                reply_markup=reply_markup
-            )
-        elif update.callback_query:
-            # إذا كان التحديث من خلال callback_query، استخدم edit_message_text
-            await update.callback_query.edit_message_text(
-                text=welcome_text,
-                reply_markup=reply_markup
-            )
-
-    async def help_command(self, update: Update, context: CallbackContext):
-        """Handle the /help command with interactive buttons"""
-        user = update.effective_user
-        user_id = user.id
-
-        # Get user from database
-        db_user = self.subscription_service.get_user(user_id)
-        is_admin = db_user and db_user.is_admin
-        has_subscription = db_user and db_user.has_active_subscription()
-
-        help_text = "📋 قائمة الأوامر المتاحة:\n\n"
-
-        # Create keyboard with help categories
+            return
+        
+        # Get referral stats
+        stats = self.referral_service.get_referral_stats(user_id)
+        
+        # Create message
+        message = f"🔗 رابط الإحالة الخاص بك:\n{referral_link}\n\n"
+        message += "📊 إحصائيات الإحالة:\n"
+        message += f"👥 إجمالي الإحالات: {stats['total_referrals']}\n"
+        message += f"✅ الإحالات المشتركة: {stats['subscribed_referrals']}\n"
+        message += f"🎁 الأيام المكافأة: {stats['total_reward_days']}\n\n"
+        message += "ℹ️ نظام الإحالة:\n"
+        message += "1. شارك رابط الإحالة الخاص بك مع أصدقائك\n"
+        message += "2. عندما يشترك شخص من خلال رابط الإحالة الخاص بك، ستحصل تلقائياً على يوم إضافي مجاني في اشتراكك\n"
+        message += "3. لن يتم منح المكافأة إلا بعد اشتراك الشخص المُحال\n"
+        message += "4. يمكنك متابعة إحالاتك ومكافآتك من خلال قائمة 'عرض إحالاتي'"
+        
+        # Create keyboard
         keyboard = [
-            [InlineKeyboardButton("🔑 أوامر الحساب", callback_data="help_account")],
-            [InlineKeyboardButton("👥 أوامر المجموعات", callback_data="help_groups")],
-            [InlineKeyboardButton("📝 أوامر النشر", callback_data="help_posting")],
-            [InlineKeyboardButton("🤖 أوامر الردود", callback_data="help_responses")],
-            [InlineKeyboardButton("🔗 أوامر الإحالات", callback_data="help_referrals")]
+            [InlineKeyboardButton("👥 عرض إحالاتي", callback_data="referral_list")],
+            [InlineKeyboardButton("📋 نسخ الرابط", callback_data="referral_copy")]
         ]
-
-        # Add admin button if user is admin
-        if is_admin:
-            keyboard.append([
-                InlineKeyboardButton("👨‍💼 أوامر المشرف", callback_data="help_admin")
-            ])
-
-        # Add back to start button
-        keyboard.append([
-            InlineKeyboardButton("🔙 العودة للبداية", callback_data="help_back_to_start")
-        ])
-
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # تعديل: التحقق من وجود update.message قبل استخدامه
-        if update.message:
-            await update.message.reply_text(
-                text=help_text,
-                reply_markup=reply_markup
+        
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            reply_markup=reply_markup
+        )
+    
+    # Available to all users without subscription requirement
+    async def my_referrals_command(self, update: Update, context: CallbackContext):
+        """Show user's referrals"""
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        
+        # Get user referrals
+        referrals = self.referral_service.get_user_referrals(user_id)
+        
+        if not referrals:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="ℹ️ ليس لديك إحالات حتى الآن.\n\n"
+                     "استخدم /referral للحصول على رابط الإحالة الخاص بك ومشاركته مع الآخرين."
             )
-        elif update.callback_query:
-            # إذا كان التحديث من خلال callback_query، استخدم edit_message_text
-            await update.callback_query.edit_message_text(
-                text=help_text,
-                reply_markup=reply_markup
+            return
+        
+        # Create message
+        message = f"👥 إحالاتك ({len(referrals)}):\n\n"
+        
+        for i, referral in enumerate(referrals, 1):
+            referred_id = referral.get('referred_id')
+            is_subscribed = referral.get('is_subscribed', False)
+            reward_given = referral.get('reward_given', False)
+            created_at = referral.get('created_at', datetime.now()).strftime('%Y-%m-%d')
+            
+            # Get user info
+            user = self.subscription_service.get_user(referred_id)
+            username = f"@{user.username}" if user and user.username else "غير معروف"
+            name = f"{user.first_name} {user.last_name or ''}" if user and user.first_name else "غير معروف"
+            
+            status = "✅ مشترك" if is_subscribed else "⏳ غير مشترك"
+            reward = "🎁 تم منح المكافأة" if reward_given else "🔒 لم يتم منح المكافأة بعد"
+            
+            message += f"{i}. المستخدم: {username}\n"
+            message += f"   الاسم: {name}\n"
+            message += f"   الحالة: {status}\n"
+            message += f"   المكافأة: {reward}\n"
+            message += f"   تاريخ الإحالة: {created_at}\n\n"
+        
+        # Get stats
+        stats = self.referral_service.get_referral_stats(user_id)
+        message += f"📊 إجمالي الإحالات: {stats['total_referrals']}\n"
+        message += f"✅ الإحالات المشتركة: {stats['subscribed_referrals']}\n"
+        message += f"🎁 الأيام المكافأة: {stats['total_reward_days']}\n\n"
+        message += "ℹ️ استخدم /referral للحصول على رابط الإحالة الخاص بك."
+        
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=message
+        )
+    
+    async def start_with_referral(self, update: Update, context: CallbackContext):
+        """Handle /start command with referral code"""
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        message_text = update.message.text
+        
+        # Extract referral code
+        match = re.match(r'^/start (ref_\w+)$', message_text)
+        if not match:
+            # Not a valid referral format, handle as normal start
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ رمز الإحالة غير صالح. سيتم توجيهك إلى صفحة البداية العادية."
             )
-
-    async def start_help_callback(self, update: Update, context: CallbackContext):
-        """Handle start and help related callbacks"""
+            # Redirect to normal start command
+            context.args = []
+            await self.dispatcher.handlers[0][0].callback(update, context)
+            return
+        
+        start_param = match.group(1)
+        referral_code = self.referral_service.get_referral_code_from_start_param(start_param)
+        
+        if not referral_code:
+            # Not a valid referral code
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ رمز الإحالة غير صالح. سيتم توجيهك إلى صفحة البداية العادية."
+            )
+            # Redirect to normal start command
+            context.args = []
+            await self.dispatcher.handlers[0][0].callback(update, context)
+            return
+        
+        # Get referrer
+        referrer_id = self.referral_service.get_referrer_by_code(referral_code)
+        
+        if not referrer_id or referrer_id == user_id:
+            # Invalid referrer or self-referral
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ رمز الإحالة غير صالح أو أنك تحاول إحالة نفسك. سيتم توجيهك إلى صفحة البداية العادية."
+            )
+            # Redirect to normal start command
+            context.args = []
+            await self.dispatcher.handlers[0][0].callback(update, context)
+            return
+        
+        # Record referral
+        success, message = self.referral_service.record_referral(referrer_id, user_id)
+        
+        # Welcome message with referral info
+        welcome_text = f"👋 مرحباً بك في البوت!\n\n"
+        welcome_text += f"🎉 لقد تمت إحالتك من قبل مستخدم آخر.\n"
+        welcome_text += f"ℹ️ عند اشتراكك في البوت، سيحصل من قام بإحالتك تلقائياً على يوم إضافي مجاني.\n"
+        welcome_text += f"📝 ملاحظة: لن يتم منح المكافأة إلا بعد أن يتم تفعيل اشتراكك من قبل المسؤول.\n\n"
+        
+        # Create subscription button
+        keyboard = [
+            [InlineKeyboardButton("🔔 طلب اشتراك", callback_data="subscription_request")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=welcome_text,
+            reply_markup=reply_markup
+        )
+        
+        # Redirect to normal start command
+        context.args = []
+        await self.dispatcher.handlers[0][0].callback(update, context)
+    
+    async def referral_callback(self, update: Update, context: CallbackContext):
+        """Handle referral-related callbacks"""
         query = update.callback_query
         await query.answer()
-
+        
         user_id = update.effective_user.id
         data = query.data
-
-        # Get user from database
-        db_user = self.subscription_service.get_user(user_id)
-        is_admin = db_user and db_user.is_admin
-        has_subscription = db_user and db_user.has_active_subscription()
-
-        # Handle start callbacks - تحسين: تنفيذ الإجراءات مباشرة بدلاً من طلب استخدام الأوامر
-        if data == "start_subscription":
-            # تنفيذ إجراء طلب الاشتراك مباشرة
-            if hasattr(context.bot, 'subscription_handlers') and hasattr(context.bot.subscription_handlers, 'subscription_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج الاشتراك
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
-                
-                await context.bot.subscription_handlers.subscription_command(update, context)
-            else:
-                # إذا لم يكن معالج الاشتراك متاحاً، عرض رسالة بديلة
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        if data == "referral_list":
+            # Show referrals list
+            referrals = self.referral_service.get_user_referrals(user_id)
+            
+            if not referrals:
                 await query.edit_message_text(
-                    text="💳 *طلب اشتراك جديد*\n\nيرجى التواصل مع المشرف للحصول على اشتراك جديد.",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                    text="ℹ️ ليس لديك إحالات حتى الآن.\n\n"
+                         "شارك رابط الإحالة الخاص بك مع الآخرين للحصول على أيام إضافية مجانية."
                 )
-
-        elif data == "start_login":
-            # تنفيذ إجراء تسجيل الدخول مباشرة
-            if HAS_AUTH_SERVICE and hasattr(context.bot, 'auth_handlers') and hasattr(context.bot.auth_handlers, 'login_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج تسجيل الدخول
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
+                return
+            
+            # Create message
+            message = f"👥 إحالاتك ({len(referrals)}):\n\n"
+            
+            for i, referral in enumerate(referrals, 1):
+                referred_id = referral.get('referred_id')
+                is_subscribed = referral.get('is_subscribed', False)
+                reward_given = referral.get('reward_given', False)
                 
-                await context.bot.auth_handlers.login_command(update, context)
-            else:
-                # إذا لم يكن معالج تسجيل الدخول متاحاً، بدء محادثة تسجيل الدخول
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="🔑 *تسجيل الدخول*\n\nيرجى إرسال رقم الهاتف بتنسيق دولي (مثال: +966123456789).",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        elif data == "start_generate_session":
-            # تنفيذ إجراء إنشاء جلسة مباشرة
-            if HAS_AUTH_SERVICE and hasattr(context.bot, 'auth_handlers') and hasattr(context.bot.auth_handlers, 'generate_session_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج إنشاء الجلسة
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
+                # Get user info
+                user = self.subscription_service.get_user(referred_id)
+                username = f"@{user.username}" if user and user.username else "غير معروف"
                 
-                await context.bot.auth_handlers.generate_session_command(update, context)
-            else:
-                # إذا لم يكن معالج إنشاء الجلسة متاحاً، بدء محادثة إنشاء الجلسة
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="🔐 *إنشاء Session String*\n\nيرجى إرسال API ID الخاص بك.",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        elif data == "start_groups":
-            # تنفيذ إجراء إدارة المجموعات مباشرة
-            if hasattr(context.bot, 'group_handlers') and hasattr(context.bot.group_handlers, 'groups_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج المجموعات
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
+                status = "✅ مشترك" if is_subscribed else "⏳ غير مشترك"
+                reward = "🎁" if reward_given else "🔒"
                 
-                await context.bot.group_handlers.groups_command(update, context)
-            else:
-                # إذا لم يكن معالج المجموعات متاحاً، عرض قائمة المجموعات
-                user_id = update.effective_user.id
-                groups = self.group_service.get_user_groups(user_id)
-
-                if not groups:
-                    keyboard = [[InlineKeyboardButton("🔄 تحديث المجموعات", callback_data="start_refresh_groups")],
-                               [InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await query.edit_message_text(
-                        text="👥 *المجموعات*\n\nلم يتم العثور على مجموعات. يرجى تحديث المجموعات أولاً.",
-                        reply_markup=reply_markup,
-                        parse_mode="Markdown"
-                    )
-                else:
-                    # إنشاء لوحة مفاتيح مع المجموعات
-                    keyboard = []
-                    for group in groups:
-                        group_id = str(group.get('group_id'))
-                        group_name = group.get('title', 'مجموعة بدون اسم')
-                        is_blacklisted = group.get('blacklisted', False)
-                        emoji = "🔴" if is_blacklisted else "🟢"
-                        keyboard.append([InlineKeyboardButton(f"{emoji} {group_name}", callback_data=f"group:{group_id}")])
-
-                    keyboard.append([InlineKeyboardButton("🔄 تحديث المجموعات", callback_data="start_refresh_groups")])
-                    keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="start_back")])
-
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await query.edit_message_text(
-                        text="👥 *المجموعات*\n\nاختر مجموعة للتحكم بها:",
-                        reply_markup=reply_markup,
-                        parse_mode="Markdown"
-                    )
-
-        elif data == "start_post":
-            # تنفيذ إجراء النشر مباشرة
-            if hasattr(context.bot, 'posting_handlers') and hasattr(context.bot.posting_handlers, 'start_post'):
-                # استخدام معالج النشر مباشرة
-                # نحتاج إلى إنشاء رسالة وهمية لتمرير إلى معالج النشر
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
-
-                # استدعاء معالج النشر
-                await context.bot.posting_handlers.start_post(update, context)
-            else:
-                # إذا لم يكن معالج النشر متاحاً، عرض رسالة بديلة
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="📝 *النشر في المجموعات*\n\nيرجى استخدام الأمر /post لبدء النشر في المجموعات.",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        elif data == "start_responses":
-            # تنفيذ إجراء الردود التلقائية مباشرة
-            if HAS_RESPONSE_SERVICE and hasattr(context.bot, 'response_handlers') and hasattr(context.bot.response_handlers, 'auto_response_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج الردود التلقائية
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
-                
-                await context.bot.response_handlers.auto_response_command(update, context)
-            else:
-                # إذا لم يكن معالج الردود التلقائية متاحاً، عرض رسالة بديلة
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="🤖 *الردود التلقائية*\n\nيمكنك إعداد ردود تلقائية للرسائل الواردة.",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        elif data == "start_referral":
-            # تنفيذ إجراء الإحالة مباشرة
-            if HAS_REFERRAL_SERVICE and hasattr(context.bot, 'referral_handlers') and hasattr(context.bot.referral_handlers, 'referral_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج الإحالة
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
-                
-                await context.bot.referral_handlers.referral_command(update, context)
-            else:
-                # إذا لم يكن معالج الإحالة متاحاً، عرض رسالة بديلة
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="🔗 *الإحالة*\n\nيمكنك الحصول على رابط إحالة خاص بك لدعوة أصدقائك.",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        elif data == "start_refresh_groups":
-            # تنفيذ إجراء تحديث المجموعات مباشرة
-            if hasattr(context.bot, 'group_handlers') and hasattr(context.bot.group_handlers, 'refresh_groups_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج تحديث المجموعات
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
-                
-                await context.bot.group_handlers.refresh_groups_command(update, context)
-            else:
-                # إذا لم يكن معالج تحديث المجموعات متاحاً، عرض رسالة بديلة
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="🔄 *تحديث المجموعات*\n\nجاري تحديث قائمة المجموعات...",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        elif data == "start_status":
-            # تنفيذ إجراء عرض حالة النشر مباشرة
-            if hasattr(context.bot, 'posting_handlers') and hasattr(context.bot.posting_handlers, 'status_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج حالة النشر
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
-                
-                await context.bot.posting_handlers.status_command(update, context)
-            else:
-                # إذا لم يكن معالج حالة النشر متاحاً، عرض رسالة بديلة
-                keyboard = [[InlineKeyboardButton("🔙 العودة", callback_data="start_back")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="📊 *حالة النشر*\n\nلا توجد عمليات نشر نشطة حالياً.",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        elif data == "start_admin":
-            # تنفيذ إجراء لوحة المشرف مباشرة
-            if hasattr(context.bot, 'admin_handlers') and hasattr(context.bot.admin_handlers, 'admin_command'):
-                # تعديل: إنشاء رسالة وهمية لتمرير إلى معالج لوحة المشرف
-                class DummyMessage:
-                    def __init__(self, chat_id, from_user):
-                        self.chat_id = chat_id
-                        self.from_user = from_user
-
-                    async def reply_text(self, text, reply_markup=None, parse_mode=None):
-                        # استبدال رسالة الاستعلام بدلاً من إرسال رسالة جديدة
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=reply_markup,
-                            parse_mode=parse_mode
-                        )
-
-                # إنشاء رسالة وهمية
-                update.message = DummyMessage(
-                    chat_id=update.effective_chat.id,
-                    from_user=update.effective_user
-                )
-                
-                await context.bot.admin_handlers.admin_command(update, context)
-            else:
-                # إذا لم يكن معالج لوحة المشرف متاحاً، عرض رسالة بديلة
-                keyboard = [
-                    [InlineKeyboardButton("👥 إدارة المستخدمين", callback_data="admin_users")],
-                    [InlineKeyboardButton("📢 إرسال رسالة جماعية", callback_data="admin_broadcast")],
-                    [InlineKeyboardButton("🔔 إعدادات الاشتراك الإجباري", callback_data="admin_channel_subscription")],
-                    [InlineKeyboardButton("📊 إحصائيات", callback_data="admin_statistics")],
-                    [InlineKeyboardButton("🔙 العودة", callback_data="start_back")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    text="👨‍💼 *لوحة المشرف*\n\nاختر إحدى الخيارات التالية:",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-
-        # إضافة معالج زر العودة
-        elif data == "start_back":
-            # العودة إلى قائمة البداية
-            # تعديل: استخدام edit_message_text بدلاً من start_command
-            # لتجنب الخطأ عند استخدام update.message الذي قد يكون None
-            welcome_text = f"👋 مرحباً {update.effective_user.first_name}!\n\n"
-
-            if is_admin:
-                welcome_text += "🔰 أنت مسجل كمشرف في النظام.\n\n"
-
-            welcome_text += "🤖 أنا بوت احترافي للنشر التلقائي في مجموعات تيليجرام.\n\n"
-
-            # Create keyboard with options
-            keyboard = []
-
-            # Add referral button for all users (new feature)
-            keyboard.append([
-                InlineKeyboardButton("🔗 الإحالة", callback_data="start_referral")
-            ])
-
-            if has_subscription:
-                if db_user.subscription_end:
-                    end_date = db_user.subscription_end.strftime('%Y-%m-%d')
-                    welcome_text += f"✅ لديك اشتراك نشط حتى: {end_date}\n\n"
-                else:
-                    welcome_text += f"✅ لديك اشتراك نشط غير محدود المدة\n\n"
-
-                # Check if user is logged in
-                session_string = None
-                if self.auth_service is not None:
-                    session_string = self.auth_service.get_user_session(user_id)
-                if session_string:
-                    welcome_text += "✅ أنت مسجل الدخول بالفعل ويمكنك استخدام جميع ميزات البوت.\n\n"
-
-                    # Add main feature buttons
-                    keyboard.append([
-                        InlineKeyboardButton("👥 المجموعات", callback_data="start_groups"),
-                        InlineKeyboardButton("📝 النشر", callback_data="start_post")
-                    ])
-
-                    keyboard.append([
-                        InlineKeyboardButton("🤖 الردود التلقائية", callback_data="start_responses")
-                    ])
-
-                    # Add account management buttons
-                    keyboard.append([
-                        InlineKeyboardButton("🔄 تحديث المجموعات", callback_data="start_refresh_groups"),
-                        InlineKeyboardButton("📊 حالة النشر", callback_data="start_status")
-                    ])
-
-                    keyboard.append([
-                        InlineKeyboardButton("📋 المساعدة", callback_data="start_help")
-                    ])
-
-                    # Add admin button if user is admin
-                    if is_admin:
-                        keyboard.append([
-                            InlineKeyboardButton("👨‍💼 لوحة المشرف", callback_data="start_admin")
-                        ])
-                else:
-                    welcome_text += "⚠️ أنت لم تقم بتسجيل الدخول بعد.\n\n"
-
-                    # Add login buttons
-                    keyboard.append([
-                        InlineKeyboardButton("🔑 تسجيل الدخول", callback_data="start_login"),
-                        InlineKeyboardButton("🔐 إنشاء Session", callback_data="start_generate_session")
-                    ])
-
-                    keyboard.append([
-                        InlineKeyboardButton("📋 المساعدة", callback_data="start_help")
-                    ])
-
-                    # Add admin button if user is admin
-                    if is_admin:
-                        keyboard.append([
-                            InlineKeyboardButton("👨‍💼 لوحة المشرف", callback_data="start_admin")
-                        ])
-            else:
-                welcome_text += "⚠️ ليس لديك اشتراك نشط.\n\n"
-
-                # Create keyboard with subscription option
-                keyboard.append([
-                    InlineKeyboardButton("🔔 طلب اشتراك", callback_data="start_subscription")
-                ])
-
-                keyboard.append([
-                    InlineKeyboardButton("📋 المساعدة", callback_data="start_help")
-                ])
-
-                # Add admin button if user is admin
-                if is_admin:
-                    keyboard.append([
-                        InlineKeyboardButton("👨‍💼 لوحة المشرف", callback_data="start_admin")
-                    ])
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                text=welcome_text,
-                reply_markup=reply_markup
-            )
-
-        elif data == "start_help":
-            # Redirect to help command
-            # تعديل: استخدام help_command مباشرة بدلاً من إعادة توجيه الأمر
-            await self.help_command(update, context)
-
-        # Handle help callbacks
-        elif data == "help_account":
-            # Show account commands
-            message = "🔑 أوامر الحساب:\n\n"
-            message += "🔹 /subscription - التحقق من حالة الاشتراك\n"
-            message += "🔹 /login - تسجيل الدخول إلى حساب التيليجرام\n"
-            message += "🔹 /logout - تسجيل الخروج من حساب التيليجرام\n"
-            message += "🔹 /generate_session - توليد Session String جديد\n"
-            message += "🔹 /api_info - معلومات حول كيفية الحصول على API ID و API Hash\n"
-
+                message += f"{i}. {username} - {status} {reward}\n"
+            
+            # Get stats
+            stats = self.referral_service.get_referral_stats(user_id)
+            message += f"\n📊 إجمالي الإحالات: {stats['total_referrals']}\n"
+            message += f"✅ الإحالات المشتركة: {stats['subscribed_referrals']}\n"
+            message += f"🎁 الأيام المكافأة: {stats['total_reward_days']}"
+            
             # Create back button
             keyboard = [
-                [InlineKeyboardButton("🔙 رجوع", callback_data="help_back")]
+                [InlineKeyboardButton("🔙 رجوع", callback_data="referral_back")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-
+            
             await query.edit_message_text(
                 text=message,
                 reply_markup=reply_markup
             )
-
-        elif data == "help_groups":
-            # Show groups commands
-            message = "👥 أوامر المجموعات:\n\n"
-            message += "🔹 /groups - إدارة المجموعات\n"
-            # تصحيح: توحيد أوامر تحديث المجموعات
-            message += "🔹 /refresh - تحديث قائمة المجموعات\n"
-
-            # Create back button
-            keyboard = [
-                [InlineKeyboardButton("🔙 رجوع", callback_data="help_back")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
+        
+        elif data == "referral_copy":
+            # Generate referral link
+            referral_link = self.referral_service.generate_referral_link(user_id)
+            
+            # Update message to indicate copying
             await query.edit_message_text(
-                text=message,
-                reply_markup=reply_markup
+                text=f"🔗 تم نسخ رابط الإحالة الخاص بك:\n{referral_link}\n\n"
+                     f"شارك هذا الرابط مع أصدقائك للحصول على أيام إضافية مجانية."
             )
-
-        elif data == "help_posting":
-            # Show posting commands
-            message = "📝 أوامر النشر:\n\n"
-            message += "🔹 /post - بدء عملية النشر في المجموعات\n"
-            # تصحيح: تغيير الأمر من stop_posting إلى stop
-            message += "🔹 /stop - إيقاف عملية النشر الحالية\n"
-            message += "🔹 /status - التحقق من حالة النشر الحالية\n"
-
-            # Create back button
-            keyboard = [
-                [InlineKeyboardButton("🔙 رجوع", callback_data="help_back")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                text=message,
-                reply_markup=reply_markup
-            )
-
-        elif data == "help_responses":
-            # Show responses commands
-            message = "🤖 أوامر الردود التلقائية:\n\n"
-            message += "🔹 /auto_response - التحكم في الردود التلقائية\n"
-            message += "🔹 /start_responses - تفعيل الردود التلقائية\n"
-            message += "🔹 /stop_responses - إيقاف الردود التلقائية\n"
-            message += "🔹 /customize_responses - تخصيص الردود التلقائية\n"
-
-            # Create back button
-            keyboard = [
-                [InlineKeyboardButton("🔙 رجوع", callback_data="help_back")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                text=message,
-                reply_markup=reply_markup
-            )
-
-        elif data == "help_referrals":
-            # Show referrals commands
-            message = "🔗 أوامر الإحالات:\n\n"
-            message += "🔹 /referral - الحصول على رابط الإحالة الخاص بك\n"
-            message += "🔹 /my_referrals - عرض إحالاتك\n"
-
-            # Create back button
-            keyboard = [
-                [InlineKeyboardButton("🔙 رجوع", callback_data="help_back")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                text=message,
-                reply_markup=reply_markup
-            )
-
-        elif data == "help_admin":
-            # Show admin commands
-            message = "👨‍💼 أوامر المشرف:\n\n"
-            message += "🔹 /admin - لوحة تحكم المشرف\n"
-            message += "🔹 /adduser USER_ID DAYS - إضافة اشتراك لمستخدم\n"
-            message += "🔹 /removeuser USER_ID - إلغاء اشتراك مستخدم\n"
-            message += "🔹 /checkuser USER_ID - التحقق من حالة اشتراك مستخدم\n"
-            message += "🔹 /listusers - عرض قائمة المستخدمين مع اشتراكات نشطة\n"
-            message += "🔹 /broadcast MESSAGE - إرسال رسالة جماعية لجميع المستخدمين\n"
-            message += "🔹 /channel_subscription - إدارة الاشتراك الإجباري في القناة\n"
-            message += "🔹 /get_updated_files - الحصول على جميع الملفات المحدثة\n"
-            message += "🔹 /statistics  -  عرض احصائيات المستخدمين و نشاطهم في مجموعات\n"
-
-            # Create back button
-            keyboard = [
-                [InlineKeyboardButton("🔙 رجوع", callback_data="help_back")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                text=message,
-                reply_markup=reply_markup
-            )
-
-        # Fix: Properly handle back button callbacks
-        elif data == "help_back":
-            # Go back to help main menu
-            try:
-                # Use the help_command method but with the callback query
-                help_text = "📋 قائمة الأوامر المتاحة:\n\n"
-
-                # Create keyboard with help categories
-                keyboard = [
-                    [InlineKeyboardButton("🔑 أوامر الحساب", callback_data="help_account")],
-                    [InlineKeyboardButton("👥 أوامر المجموعات", callback_data="help_groups")],
-                    [InlineKeyboardButton("📝 أوامر النشر", callback_data="help_posting")],
-                    [InlineKeyboardButton("🤖 أوامر الردود", callback_data="help_responses")],
-                    [InlineKeyboardButton("🔗 أوامر الإحالات", callback_data="help_referrals")]
-                ]
-
-                # Add admin button if user is admin
-                if is_admin:
-                    keyboard.append([
-                        InlineKeyboardButton("👨‍💼 أوامر المشرف", callback_data="help_admin")
-                    ])
-
-                # Add back to start button
-                keyboard.append([
-                    InlineKeyboardButton("🔙 العودة للبداية", callback_data="help_back_to_start")
-                ])
-
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                await query.edit_message_text(
-                    text=help_text,
-                    reply_markup=reply_markup
-                )
-            except Exception as e:
-                # If there's an error, just send a new help message
-                # تعديل: استخدام edit_message_text بدلاً من help_command
-                help_text = "📋 قائمة الأوامر المتاحة:\n\n"
-
-                # Create keyboard with help categories
-                keyboard = [
-                    [InlineKeyboardButton("🔑 أوامر الحساب", callback_data="help_account")],
-                    [InlineKeyboardButton("👥 أوامر المجموعات", callback_data="help_groups")],
-                    [InlineKeyboardButton("📝 أوامر النشر", callback_data="help_posting")],
-                    [InlineKeyboardButton("🤖 أوامر الردود", callback_data="help_responses")],
-                    [InlineKeyboardButton("🔗 أوامر الإحالات", callback_data="help_referrals")]
-                ]
-
-                # Add admin button if user is admin
-                if is_admin:
-                    keyboard.append([
-                        InlineKeyboardButton("👨‍💼 أوامر المشرف", callback_data="help_admin")
-                    ])
-
-                # Add back to start button
-                keyboard.append([
-                    InlineKeyboardButton("🔙 العودة للبداية", callback_data="help_back_to_start")
-                ])
-
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                await query.edit_message_text(
-                    text=help_text,
-                    reply_markup=reply_markup
-                )
-
-        elif data == "help_back_to_start":
-            # Go back to start command
-            # تعديل: استخدام start_back بدلاً من start_command
-            # لتجنب الخطأ عند استخدام update.message الذي قد يكون None
-            await self.start_help_callback(update, context)
+        
+        elif data == "referral_back":
+            # Go back to main referral page
+            await self.referral_command(update, context)
