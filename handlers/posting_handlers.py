@@ -8,9 +8,9 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ConversationHandler, filters, ContextTypes
 )
-from services.posting_service import PostingService
-from services.group_service import GroupService
-from utils.keyboard_utils import create_keyboard
+from posting_service import PostingService
+from group_service import GroupService
+from keyboard_utils import create_keyboard
 
 class PostingHandlers:
     # Define conversation states
@@ -688,16 +688,16 @@ class PostingHandlers:
             is_recurring = timing == "delay"
 
             # Start posting
-            task_id, success = self.posting_service.start_posting_task(
+            success, result_message = self.posting_service.post_message(
                 user_id=user_id,
-                post_id=str(time.time()), # Generate a simple post_id for now
                 group_ids=group_ids,
                 message=message,
-                exact_time=exact_time_dt if timing == "exact" else None, # Pass datetime object or None
-                delay_seconds=delay_seconds if timing == "delay" else None,
+                timing_type=timing,
+                exact_time=exact_time,
+                delay_seconds=delay_seconds,
                 is_recurring=is_recurring
             )
-            result_message = "تم بدء النشر بنجاح." if success else "فشل بدء النشر."
+
             if success:
                 # Update message with success
                 await query.edit_message_text(
@@ -757,47 +757,29 @@ class PostingHandlers:
             user_id = update.effective_user.id
 
             # Get posting status
-            tasks = self.posting_service.get_all_tasks_status(user_id)
+            status = self.posting_service.get_posting_status(user_id)
 
-            if tasks:
+            if status['is_active']:
                 # Active posting
-                active_tasks = [task for task in tasks if task.get('status') == 'running']
-
-                if not active_tasks:
-                    await update.message.reply_text(
-                        "📊 *حالة النشر:*\n\n"
-                        "لا يوجد نشر نشط حالياً.",
-                        parse_mode="Markdown"
-                    )
-                    return
+                active_tasks = status['active_tasks']
 
                 # Create status message
-                status_text = "📊 *حالة النشر النشطة:*\n\n"
+                status_text = "📊 *حالة النشر:*\n\n"
 
                 for task in active_tasks:
-                    group_count = len(task.get('group_ids', []))
-                    message_count = task.get('message_count', 0)
-                    # Ensure message_count is a valid number
-                    if not isinstance(message_count, int):
-                        message_count = 0
-                    
-                    status_text += f"🆔 *معرف المهمة:* `{task.get('task_id', 'N/A')}`\n"
-                    status_text += f"👥 *المجموعات:* {group_count} مجموعة\n"
-                    status_text += f"✅ *تم النشر في:* {message_count} مجموعة\n"
+                    status_text += f"👥 *المجموعات:* {task['group_count']} مجموعة\n"
+                    status_text += f"✅ *تم النشر في:* {task['message_count']} مجموعة\n"
 
                     if task.get('exact_time'):
-                        status_text += f"🕒 *التوقيت:* {task.get('exact_time')}\n"
+                        status_text += f"🕒 *التوقيت:* {task['exact_time']}\n"
                     elif task.get('delay_seconds', 0) > 0:
-                        status_text += f"⏳ *التأخير:* {task.get('delay_seconds')} ثانية\n"
+                        status_text += f"⏳ *التأخير:* {task['delay_seconds']} ثانية\n"
 
-                    start_time_str = task.get('start_time', 'غير متوفر')
-                    if isinstance(start_time_str, datetime):
-                        start_time_str = start_time_str.strftime("%Y-%m-%d %H:%M:%S")
-                    status_text += f"⏱ *بدأ في:* {start_time_str}\n\n"
+                    status_text += f"⏱ *بدأ في:* {task['start_time']}\n\n"
 
                 # Create keyboard
                 keyboard = [
-                    [InlineKeyboardButton("⛔ إيقاف كل النشر", callback_data="stop_posting")]
+                    [InlineKeyboardButton("⛔ إيقاف النشر", callback_data="stop_posting")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -827,14 +809,8 @@ class PostingHandlers:
             # Get user ID
             user_id = update.effective_user.id
 
-            # Get all tasks for this user before stopping them
-            tasks = self.posting_service.get_all_tasks_status(user_id)
-            active_tasks = [task for task in tasks if task.get('status') == 'running']
-            
-            # Stop posting and DELETE tasks (not just mark as stopped)
-            stopped_count = self.posting_service.stop_all_user_tasks(user_id)
-            success = stopped_count > 0
-            result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
+            # Stop posting
+            success, result_message = self.posting_service.stop_posting(user_id)
 
             # Update message
             await query.edit_message_text(
@@ -851,14 +827,8 @@ class PostingHandlers:
             # Get user ID
             user_id = update.effective_user.id
 
-            # Get all tasks for this user before stopping them
-            tasks = self.posting_service.get_all_tasks_status(user_id)
-            active_tasks = [task for task in tasks if task.get('status') == 'running']
-            
-            # Stop posting and DELETE tasks (not just mark as stopped)
-            stopped_count = self.posting_service.stop_all_user_tasks(user_id)
-            success = stopped_count > 0
-            result_message = f"تم إيقاف {stopped_count} مهمة نشر بنجاح." if success else "لم يتم العثور على مهام نشر نشطة لإيقافها."
+            # Stop posting
+            success, result_message = self.posting_service.stop_posting(user_id)
 
             # Send message
             await update.message.reply_text(
